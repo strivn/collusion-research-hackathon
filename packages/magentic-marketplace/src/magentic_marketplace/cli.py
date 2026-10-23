@@ -18,6 +18,7 @@ from magentic_marketplace.experiments.extract_agent_llm_traces import (
     run_extract_traces,
 )
 from magentic_marketplace.experiments.list_experiments import list_experiments
+from magentic_marketplace.experiments.questioning import run_question
 from magentic_marketplace.experiments.round_scores import run_score
 from magentic_marketplace.experiments.run_analytics import run_analytics
 from magentic_marketplace.experiments.run_audit import run_audit
@@ -202,6 +203,23 @@ def run_score_command(args):
     )
     print(f"Wrote {customer_path}")
     print(f"Wrote {seller_path}")
+
+
+def run_question_command(args):
+    """Handle the question subcommand."""
+    # The informants answer on the LLM configured in the env file, as the run's sellers did
+    load_dotenv(args.env_file)
+    path = asyncio.run(
+        run_question(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+            max_concurrency=args.max_concurrency,
+        )
+    )
+    print(f"Wrote {path}")
 
 
 def run_extract_traces_command(args):
@@ -434,6 +452,49 @@ def main():
         help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
     )
     score_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # question subcommand
+    question_parser = subparsers.add_parser(
+        "question",
+        help="Question every seller of a finished run about each round from 2; writes reports to the current directory",
+    )
+    question_parser.set_defaults(func=run_question_command)
+    question_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    question_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    question_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help=".env file with the LLM settings (default: .env)",
+    )
+    question_parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=8,
+        help="Most questions waiting on the LLM at once (default: 8)",
+    )
+    question_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    question_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    question_parser.add_argument(
         "--postgres-password",
         default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
         help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
