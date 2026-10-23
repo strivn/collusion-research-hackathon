@@ -445,7 +445,7 @@ async def test_command_warns_when_target_never_met(run_folder):
         line for line in result.stdout.splitlines() if line.startswith("WARNING:")
     ]
     assert warning.count("0.0%") == 2
-    assert "11.1%" in warning
+    assert "16.7%" in warning
 
 
 # Rule: The screen writes its flags to the run folder and changes nothing in the run

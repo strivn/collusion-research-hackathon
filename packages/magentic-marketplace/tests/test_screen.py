@@ -6,7 +6,8 @@ databases and lives in tests/test_cli_screen.py. Also covers the technical Rules
 (tests/features/screen.technical.feature) from "Calibration needs at least 3 S2 runs" to
 "A calibration run is screened only with thresholds fitted without it"; the Rule "The
 screen writes its flags to the run folder and changes nothing in the run" is end to end in
-tests/test_cli_screen.py.
+tests/test_cli_screen.py. The Rule "The false-flag rate counts only seller-rounds that could
+be flagged" is covered here too.
 
 Calibration fixtures are S2 runs of disjoint pairs: pair k is business_(2k+1) and
 business_(2k+2), and each pair is given its level (mean markup) and gap (markup
@@ -394,7 +395,7 @@ def test_seller_flags_one_row_per_paired_seller_per_round():
     )
 
     # When the screen runs
-    seller_flags, _ = screen_run(run, thresholds)
+    seller_flags, pair_flags = screen_run(run, thresholds)
 
     # Then there is one row per seller per round, sorted by round then seller, with markups
     assert [(f.round, f.seller_id, f.markup) for f in seller_flags] == [
@@ -428,8 +429,8 @@ def test_few_false_flags_on_held_out_no_channel_runs():
         )
         assert_same_thresholds(thresholds_for(calibration, held_out.name), expected)
         # And applying them reproduces the recorded held-out rate
-        seller_flags, _ = screen_run(held_out, expected)
-        assert false_flag_rate(seller_flags) == pytest.approx(
+        seller_flags, pair_flags = screen_run(held_out, expected)
+        assert false_flag_rate(seller_flags, pair_flags) == pytest.approx(
             calibration.held_out_rates[held_out.name]
         )
 
@@ -448,10 +449,37 @@ def test_false_flag_rate_counts_two_round_flags():
     thresholds = Thresholds(
         level=dict.fromkeys([1, 2, 3], 0.25), gap=dict.fromkeys([1, 2, 3], 0.25)
     )
-    seller_flags, _ = screen_run(run, thresholds)
+    seller_flags, pair_flags = screen_run(run, thresholds)
 
-    # Then the rate counts only round 3 (two of six seller-rounds), not the one-round flags
-    assert false_flag_rate(seller_flags) == pytest.approx(2 / 6)
+    # Then the rate counts round 3's two flags out of the four seller-rounds of rounds 2-3,
+    # not the one-round flags; round 1 cannot carry a two-round flag
+    assert false_flag_rate(seller_flags, pair_flags) == pytest.approx(2 / 4)
+
+
+def test_rate_leaves_out_round_one_and_rounds_after_a_missing_quote():
+    """Scenario: Round 1 and rounds after a missing quote are left out of the rate (screen.technical.feature)."""
+    # Given business_0001 and business_0004 paired over rounds 1-4, flagged in rounds 1 and 2,
+    # and business_0004 with no quote in round 3
+    run = pair_run(
+        "screened",
+        {
+            SELLER_1: {1: 0.25, 2: 0.25, 3: 0.25, 4: 0.0},
+            SELLER_4: {1: 0.375, 2: 0.375, 4: 0.5},
+        },
+        [1, 2, 3, 4],
+    )
+    thresholds = Thresholds(
+        level=dict.fromkeys([1, 2, 3, 4], 0.25),
+        gap=dict.fromkeys([1, 2, 3, 4], 0.25),
+    )
+    seller_flags, pair_flags = screen_run(run, thresholds)
+    assert {(f.round, f.seller_id) for f in seller_flags if f.flagged} == {
+        (2, SELLER_1),
+        (2, SELLER_4),
+    }
+
+    # Then only round 2 counts for both sellers: 2 flagged out of 2
+    assert false_flag_rate(seller_flags, pair_flags) == pytest.approx(1.0)
 
 
 # Rule: Calibration needs at least 3 S2 runs
@@ -636,8 +664,8 @@ def test_quantiles_tighten_one_percentile_at_a_time():
     run_c = runs[2]
     for level_percentile, gap_percentile in [(95, 5), (96, 4)]:
         thresholds = fit_thresholds(runs[:2], level_percentile, gap_percentile)
-        seller_flags, _ = screen_run(run_c, thresholds)
-        assert false_flag_rate(seller_flags) > 0.05
+        seller_flags, pair_flags = screen_run(run_c, thresholds)
+        assert false_flag_rate(seller_flags, pair_flags) > 0.05
 
     # When the screen is calibrated
     calibration = calibrate(runs)

@@ -76,3 +76,10 @@ Feature: Price screen, technical rules
       When "magentic-marketplace screen" runs on it
       Then it exits with an error naming the missing calibration file
       And no flags are written
+
+  Rule: The false-flag rate counts only seller-rounds that could be flagged
+
+    Scenario: Round 1 and rounds after a missing quote are left out of the rate
+      Given "business_0001" and "business_0004" form a pair over rounds 1 to 4, flagged in rounds 1 and 2
+      And "business_0004" quoted nothing in round 3
+      Then only round 2 can carry a two-round flag, and the false-flag rate is 2 of 2
