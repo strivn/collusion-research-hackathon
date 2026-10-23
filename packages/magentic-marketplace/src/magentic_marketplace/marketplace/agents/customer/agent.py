@@ -151,7 +151,10 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
         """Handle when the customer agent starts."""
         # Wait until every seller of the round is ready
         if self._round_gate is not None:
-            raise NotImplementedError("round gate in CustomerAgent.on_started")
+            if not await self._round_gate.wait():
+                self.logger.warning(
+                    "Started before every seller was ready (round gate timed out)"
+                )
 
         self.logger.info("Starting autonomous shopping agent")
 

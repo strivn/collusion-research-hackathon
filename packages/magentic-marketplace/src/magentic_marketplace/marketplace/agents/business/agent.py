@@ -272,46 +272,47 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
 
     async def on_started(self):
         """Handle when the business agent starts."""
-        # Tell the round's customers when this seller is ready
-        if self._round_gate is not None:
-            raise NotImplementedError("round gate in BusinessAgent.on_started")
+        # Release this seller's place in the round gate even if start-up fails
+        try:
+            # Talk with other sellers before pricing
+            channel_messages = None
+            if self._talk_phase is not None:
+                await self._talk_phase.take_part(self.id, self.talk_turn)
+                if self._seller_pricing:
+                    channel_messages = (await self.fetch_channel_messages()).messages
 
-        # Talk with other sellers before pricing
-        channel_messages = None
-        if self._talk_phase is not None:
-            await self._talk_phase.take_part(self.id, self.talk_turn)
+            # Set this round's price list before serving any customer
             if self._seller_pricing:
-                channel_messages = (await self.fetch_channel_messages()).messages
+                if self.round_number == 1:
+                    # Round 1 is the seed round: menu prices, no pricing call
+                    round_prices = dict(self.business.menu_features)
+                    self.logger.info(
+                        "Prices for round 1",
+                        data=PriceListLog(
+                            seller_id=self.business.id, round=1, prices=round_prices
+                        ),
+                    )
+                else:
+                    result = await set_round_prices(
+                        self.business,
+                        current_prices=self._current_prices
+                        or dict(self.business.menu_features),
+                        round_number=self.round_number,
+                        generate_struct_fn=self.generate_struct,
+                        logger=self.logger,
+                        memory=self._memory,
+                        channel_messages=channel_messages,
+                        seller_names=dict(self._other_sellers),
+                    )
+                    round_prices = result.prices
+                    self.round_notes = result.notes
+                self.round_prices = round_prices
+                self._responses.round_prices = round_prices
 
-        # Set this round's price list before serving any customer
-        if self._seller_pricing:
-            if self.round_number == 1:
-                # Round 1 is the seed round: menu prices, no pricing call
-                round_prices = dict(self.business.menu_features)
-                self.logger.info(
-                    "Prices for round 1",
-                    data=PriceListLog(
-                        seller_id=self.business.id, round=1, prices=round_prices
-                    ),
-                )
-            else:
-                result = await set_round_prices(
-                    self.business,
-                    current_prices=self._current_prices
-                    or dict(self.business.menu_features),
-                    round_number=self.round_number,
-                    generate_struct_fn=self.generate_struct,
-                    logger=self.logger,
-                    memory=self._memory,
-                    channel_messages=channel_messages,
-                    seller_names=dict(self._other_sellers),
-                )
-                round_prices = result.prices
-                self.round_notes = result.notes
-            self.round_prices = round_prices
-            self._responses.round_prices = round_prices
-
-        self.logger.info("Ready for customers")
+            self.logger.info("Ready for customers")
+        finally:
+            if self._round_gate is not None:
+                self._round_gate.seller_ready()
 
     async def _handle_payment(self, customer_id: str, payment: Payment) -> TextMessage:
         """Handle a payment from a customer.

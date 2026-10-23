@@ -21,6 +21,7 @@ from magentic_marketplace.experiments.utils import (
 from magentic_marketplace.marketplace.agents import BusinessAgent, CustomerAgent
 from magentic_marketplace.marketplace.agents.business.pricing import SellerMemory
 from magentic_marketplace.marketplace.agents.business.talk import TalkPhase
+from magentic_marketplace.marketplace.agents.round_gate import RoundGate
 from magentic_marketplace.marketplace.protocol.protocol import SimpleMarketplaceProtocol
 from magentic_marketplace.platform.database import (
     connect_to_postgresql_database,
@@ -153,6 +154,8 @@ async def run_marketplace_experiment(
                     if seller_channel and round_number >= 2
                     else None
                 )
+                # Hold this round's customers until all its sellers are ready
+                round_gate = RoundGate(len(businesses))
                 business_agents = [
                     BusinessAgent(
                         business,
@@ -164,6 +167,7 @@ async def run_marketplace_experiment(
                         memory=memories.get(business.id),
                         talk_phase=talk_phase,
                         other_sellers=other_sellers[business.id],
+                        round_gate=round_gate,
                     )
                     for business in businesses
                 ]
@@ -178,6 +182,7 @@ async def run_marketplace_experiment(
                         budget=budget_by_customer.get(customer.id),
                         round_number=round_number,
                         messages_after_index=messages_floor,
+                        round_gate=round_gate,
                     )
                     for customer in customers
                 ]
