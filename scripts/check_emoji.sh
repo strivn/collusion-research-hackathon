@@ -2,25 +2,18 @@
 
 set -e
 
-BASE_BRANCH=$1
+BASE_COMMIT=$1
 HEAD_COMMIT=$2
 
-if [ -z "$BASE_BRANCH" ] || [ -z "$HEAD_COMMIT" ]; then
-  echo "Usage: $0 <base_branch> <head_commit>"
+if [ -z "$BASE_COMMIT" ] || [ -z "$HEAD_COMMIT" ]; then
+  echo "Usage: $0 <base_commit> <head_commit>"
   exit 1
 fi
 
-echo "Checking for emojis in PR changes..."
+echo "Checking for emojis in lines added by the PR..."
 
-# Check for emojis using Python for portability across macOS and Linux
-# This covers common emoji Unicode ranges
-
-TMPFILE=$(mktemp)
-HAS_EMOJIS=0
-
-while read file; do
-  if [ -f "$file" ]; then
-    EMOJI_CHECK=$(python3 -c "
+# Scan only added lines, so emojis already on the base branch do not fail the PR
+git diff -U0 "$BASE_COMMIT...$HEAD_COMMIT" | python3 -c "
 import re
 import sys
 
@@ -33,29 +26,24 @@ emoji_pattern = re.compile(
     '\U0001F900-\U0001F9FF]'  # Supplemental Symbols
 )
 
-try:
-    with open('$file', 'r', encoding='utf-8') as f:
-        for line_num, line in enumerate(f, 1):
-            if emoji_pattern.search(line):
-                print(f'{line_num}:{line.rstrip()}')
-except Exception:
-    pass
-" 2>/dev/null)
+# Track the file and new-side line number from each diff hunk header
+found = False
+file = None
+line_num = 0
+for raw in sys.stdin.buffer:
+    line = raw.decode('utf-8', errors='replace').rstrip('\n')
+    if line.startswith('+++ '):
+        file = line[6:] if line.startswith('+++ b/') else None
+    elif line.startswith('@@'):
+        line_num = int(re.search(r'\+(\d+)', line).group(1))
+    elif line.startswith('+') and file is not None:
+        if emoji_pattern.search(line):
+            print(f'ERROR: Emoji in {file}:{line_num}: {line[1:].strip()}')
+            found = True
+        line_num += 1
 
-    if [ -n "$EMOJI_CHECK" ]; then
-      echo "ERROR: Emojis found in: $file"
-      echo "$EMOJI_CHECK" | head -5
-      echo ""
-      echo "1" > "$TMPFILE"
-    fi
-  fi
-done < <(git diff $BASE_BRANCH...$HEAD_COMMIT --name-only)
-
-if [ -f "$TMPFILE" ] && [ "$(cat $TMPFILE 2>/dev/null)" = "1" ]; then
-  rm -f "$TMPFILE"
-  echo "Please remove all emojis from code, comments, and documentation."
-  exit 1
-else
-  rm -f "$TMPFILE"
-  echo "PASS: No emojis found in PR changes"
-fi
+if found:
+    print('Please remove all emojis from code, comments, and documentation.')
+    sys.exit(1)
+print('PASS: No emojis found in PR changes')
+"
