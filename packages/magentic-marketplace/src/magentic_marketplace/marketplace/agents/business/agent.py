@@ -20,6 +20,7 @@ from ...llm.config import BaseLLMConfig
 from ...shared.models import Business, BusinessAgentProfile
 from ..base import BaseSimpleMarketplaceAgent
 from ..proposal_storage import OrderProposalStorage
+from ..round_gate import RoundGate
 from .models import BusinessSummary, ChannelMessageLog
 from .pricing import PriceListLog, SellerMemory, set_round_prices
 from .responses import ResponseHandler
@@ -42,6 +43,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         memory: SellerMemory | None = None,
         talk_phase: TalkPhase | None = None,
         other_sellers: list[tuple[str, str]] | None = None,
+        round_gate: RoundGate | None = None,
     ):
         """Initialize the business agent.
 
@@ -59,6 +61,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             memory: Notes, sales history and rivals' last prices shown in this round's pricing call.
             talk_phase: This round's talk phase, joined before pricing. None means no talk (stock).
             other_sellers: Every other seller as (id, name), listed in the talk prompt.
+            round_gate: This round's gate, told when this seller is ready for customers.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -80,6 +83,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._memory = memory
         self._talk_phase = talk_phase
         self._other_sellers = other_sellers or []
+        self._round_gate = round_gate
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
@@ -268,42 +272,47 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
 
     async def on_started(self):
         """Handle when the business agent starts."""
-        # Talk with other sellers before pricing
-        channel_messages = None
-        if self._talk_phase is not None:
-            await self._talk_phase.take_part(self.id, self.talk_turn)
+        # Release this seller's place in the round gate even if start-up fails
+        try:
+            # Talk with other sellers before pricing
+            channel_messages = None
+            if self._talk_phase is not None:
+                await self._talk_phase.take_part(self.id, self.talk_turn)
+                if self._seller_pricing:
+                    channel_messages = (await self.fetch_channel_messages()).messages
+
+            # Set this round's price list before serving any customer
             if self._seller_pricing:
-                channel_messages = (await self.fetch_channel_messages()).messages
+                if self.round_number == 1:
+                    # Round 1 is the seed round: menu prices, no pricing call
+                    round_prices = dict(self.business.menu_features)
+                    self.logger.info(
+                        "Prices for round 1",
+                        data=PriceListLog(
+                            seller_id=self.business.id, round=1, prices=round_prices
+                        ),
+                    )
+                else:
+                    result = await set_round_prices(
+                        self.business,
+                        current_prices=self._current_prices
+                        or dict(self.business.menu_features),
+                        round_number=self.round_number,
+                        generate_struct_fn=self.generate_struct,
+                        logger=self.logger,
+                        memory=self._memory,
+                        channel_messages=channel_messages,
+                        seller_names=dict(self._other_sellers),
+                    )
+                    round_prices = result.prices
+                    self.round_notes = result.notes
+                self.round_prices = round_prices
+                self._responses.round_prices = round_prices
 
-        # Set this round's price list before serving any customer
-        if self._seller_pricing:
-            if self.round_number == 1:
-                # Round 1 is the seed round: menu prices, no pricing call
-                round_prices = dict(self.business.menu_features)
-                self.logger.info(
-                    "Prices for round 1",
-                    data=PriceListLog(
-                        seller_id=self.business.id, round=1, prices=round_prices
-                    ),
-                )
-            else:
-                result = await set_round_prices(
-                    self.business,
-                    current_prices=self._current_prices
-                    or dict(self.business.menu_features),
-                    round_number=self.round_number,
-                    generate_struct_fn=self.generate_struct,
-                    logger=self.logger,
-                    memory=self._memory,
-                    channel_messages=channel_messages,
-                    seller_names=dict(self._other_sellers),
-                )
-                round_prices = result.prices
-                self.round_notes = result.notes
-            self.round_prices = round_prices
-            self._responses.round_prices = round_prices
-
-        self.logger.info("Ready for customers")
+            self.logger.info("Ready for customers")
+        finally:
+            if self._round_gate is not None:
+                self._round_gate.seller_ready()
 
     async def _handle_payment(self, customer_id: str, payment: Payment) -> TextMessage:
         """Handle a payment from a customer.
