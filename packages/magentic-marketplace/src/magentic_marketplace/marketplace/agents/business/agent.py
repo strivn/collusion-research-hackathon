@@ -20,6 +20,7 @@ from ...llm.config import BaseLLMConfig
 from ...shared.models import Business, BusinessAgentProfile
 from ..base import BaseSimpleMarketplaceAgent
 from ..proposal_storage import OrderProposalStorage
+from ..round_gate import RoundGate
 from .models import BusinessSummary, ChannelMessageLog
 from .pricing import PriceListLog, SellerMemory, set_round_prices
 from .responses import ResponseHandler
@@ -42,6 +43,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         memory: SellerMemory | None = None,
         talk_phase: TalkPhase | None = None,
         other_sellers: list[tuple[str, str]] | None = None,
+        round_gate: RoundGate | None = None,
     ):
         """Initialize the business agent.
 
@@ -59,6 +61,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             memory: Notes, sales history and rivals' last prices shown in this round's pricing call.
             talk_phase: This round's talk phase, joined before pricing. None means no talk (stock).
             other_sellers: Every other seller as (id, name), listed in the talk prompt.
+            round_gate: This round's gate, told when this seller is ready for customers.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -80,6 +83,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._memory = memory
         self._talk_phase = talk_phase
         self._other_sellers = other_sellers or []
+        self._round_gate = round_gate
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
@@ -268,6 +272,10 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
 
     async def on_started(self):
         """Handle when the business agent starts."""
+        # Tell the round's customers when this seller is ready
+        if self._round_gate is not None:
+            raise NotImplementedError("round gate in BusinessAgent.on_started")
+
         # Talk with other sellers before pricing
         channel_messages = None
         if self._talk_phase is not None:

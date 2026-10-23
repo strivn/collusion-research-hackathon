@@ -20,6 +20,7 @@ from ...llm.config import BaseLLMConfig
 from ...shared.models import Customer, CustomerAgentProfile
 from ..base import BaseSimpleMarketplaceAgent
 from ..proposal_storage import OrderProposalStorage
+from ..round_gate import RoundGate
 from .models import (
     CustomerAction,
     CustomerActionResult,
@@ -45,6 +46,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
         budget: float | None = None,
         round_number: int = 1,
         messages_after_index: int | None = None,
+        round_gate: RoundGate | None = None,
     ):
         """Initialize the customer agent.
 
@@ -59,6 +61,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
             budget: Most the customer may pay for its whole order. None means no budget (stock).
             round_number: The round this agent shops in.
             messages_after_index: Ignore messages at or below this row index (earlier rounds).
+            round_gate: This round's gate; the customer waits on it before its first step.
 
         """
         profile = CustomerAgentProfile.from_customer(customer)
@@ -84,6 +87,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
         self._polling_interval = polling_interval
         self._max_steps = max_steps
         self._budget = budget
+        self._round_gate = round_gate
 
     @property
     def customer(self) -> Customer:
@@ -145,6 +149,10 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
 
     async def on_started(self):
         """Handle when the customer agent starts."""
+        # Wait until every seller of the round is ready
+        if self._round_gate is not None:
+            raise NotImplementedError("round gate in CustomerAgent.on_started")
+
         self.logger.info("Starting autonomous shopping agent")
 
     async def _process_new_messages(self, messages: list[ReceivedMessage]):
