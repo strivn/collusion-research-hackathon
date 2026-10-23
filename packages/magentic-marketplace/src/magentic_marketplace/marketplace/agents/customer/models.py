@@ -112,3 +112,15 @@ CustomerActionResult = (
     | CustomerSendMessageResults
     | FetchMessagesResponse
 )
+
+
+class RefusedPaymentLog(BaseModel):
+    """Log entry for a payment the customer's budget refused."""
+
+    type: Literal["refused_payment"] = "refused_payment"
+    customer_id: str
+    business_id: str
+    proposal_id: str
+    total: float
+    budget: float
+    round: int

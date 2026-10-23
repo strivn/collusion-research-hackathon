@@ -5,7 +5,12 @@ import socket
 from datetime import datetime
 from pathlib import Path
 
-from magentic_marketplace.experiments.budgets import assign_budgets, save_budgets
+from magentic_marketplace.experiments.budgets import (
+    BudgetAssignmentLog,
+    CustomerBudget,
+    assign_budgets,
+    save_budgets,
+)
 from magentic_marketplace.experiments.run_config import BudgetConfig
 from magentic_marketplace.experiments.utils import (
     load_businesses_from_yaml,
@@ -66,6 +71,7 @@ async def run_marketplace_experiment(
     print(f"Loaded {len(customers)} customers and {len(businesses)} businesses")
 
     # Assign customer budgets and record them in the run folder
+    assignments: list[CustomerBudget] = []
     budget_by_customer: dict[str, float] = {}
     if budget is not None:
         assignments = assign_budgets(customers, budget.multipliers, budget.seed)
@@ -111,6 +117,13 @@ async def run_marketplace_experiment(
         logger.info(
             f"Marketplace experiment started:\nbusinesses={len(businesses)}\ncustomers={len(customers)}\ndata_dir={data_dir}\nexperiment_name:{experiment_name}",
         )
+
+        # Record the budget assignment once, before round 1
+        if budget is not None:
+            logger.info(
+                "Customer budgets assigned",
+                data=BudgetAssignmentLog(budgets=assignments),
+            )
 
         # Run every round with fresh agents; a round starts after the previous one is fully done
         messages_floor: int | None = None
