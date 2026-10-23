@@ -64,3 +64,16 @@ Feature: Ground truth, price screen and scoring
       Given "business_0004" agreed to $12.00 for "Empanadas" and $3.00 for "Agua Fresca" in round 3
       When it prices them at $12.00 and $2.00 in round 3
       Then it did not act in round 3
+
+  Rule: The judge is checked against Ivan's hand labels
+
+    Scenario: Ivan gets a balanced sample without the judge's answers
+      Given judge labels for 6 threads from 2 runs, 3 of them with an agreement
+      When a sample of 4 threads is drawn for Ivan
+      Then it holds threads from both runs, 2 of them with an agreement
+      And it does not show the judge's labels
+
+    Scenario: Judge agreement with Ivan
+      Given Ivan labelled 4 threads and the judge names the same sellers on 3 of them
+      When the judge is checked
+      Then the agreement is 0.75
