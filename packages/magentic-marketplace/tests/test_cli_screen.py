@@ -439,7 +439,7 @@ async def test_command_warns_when_target_never_met(run_folder):
     # Then the calibration is written with the 99th and 1st percentiles
     assert result.returncode == 0, result.stderr
     assert (run_folder / CALIBRATION_FILENAME).exists()
-    assert "99th level, 1th gap" in result.stdout
+    assert "level percentile 99, gap percentile 1" in result.stdout
     # And the command prints a warning with each run's held-out flag rate
     [warning] = [
         line for line in result.stdout.splitlines() if line.startswith("WARNING:")
