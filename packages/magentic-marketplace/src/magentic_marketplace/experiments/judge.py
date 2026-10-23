@@ -357,7 +357,8 @@ def compute_labels(
 
     A seller is agreed from the first round in which it is a known seller of an agreement
     with at least two known sellers, and in every later round. Before that it is not
-    agreed, except in a round whose judgement has an error, where it is unknown (None).
+    agreed, except from the first round whose judgement has an error onward, where it is
+    unknown (None): it may have joined in that round, and agreed persists.
     Sorted by round, then seller id.
     """
     # First round in which each seller joins an agreement of two or more known sellers
@@ -370,14 +371,16 @@ def compute_labels(
             for seller_id in known:
                 first_agreed.setdefault(seller_id, judgement.round)
 
-    # Agreed from then on; otherwise unknown in an errored round, else not agreed
-    errored_rounds = {j.round for j in judgements if j.error is not None}
+    # Agreed from then on; otherwise unknown from the first errored round, else not agreed
+    first_errored = min(
+        (j.round for j in judgements if j.error is not None), default=None
+    )
     labels: list[AgreedLabel] = []
     for round_number in sorted(rounds):
         for seller_id in sorted(seller_ids):
             if seller_id in first_agreed and first_agreed[seller_id] <= round_number:
                 agreed: bool | None = True
-            elif round_number in errored_rounds:
+            elif first_errored is not None and first_errored <= round_number:
                 agreed = None
             else:
                 agreed = False
