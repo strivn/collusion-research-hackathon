@@ -17,7 +17,19 @@ from magentic_marketplace.platform.database import (
     connect_to_postgresql_database,
 )
 from magentic_marketplace.platform.database.converter import convert_postgres_to_sqlite
+from magentic_marketplace.platform.database.queries.base import RangeQueryParams
 from magentic_marketplace.platform.launcher import AgentLauncher, MarketplaceLauncher
+
+
+async def _last_action_index(database) -> int | None:
+    """Return the highest row_index in the actions table, or None when it is empty."""
+    count = await database.actions.count()
+    if count == 0:
+        return None
+    last_row = await database.actions.get_all(
+        RangeQueryParams(offset=count - 1, limit=1)
+    )
+    return last_row[0].index
 
 
 async def run_marketplace_experiment(
@@ -38,6 +50,7 @@ async def run_marketplace_experiment(
     export_dir: str | None = None,
     export_filename: str | None = None,
     budget: BudgetConfig | None = None,
+    rounds: int = 1,
 ):
     """Run a marketplace experiment using YAML configuration files."""
     # Load businesses and customers from YAML files
@@ -98,32 +111,49 @@ async def run_marketplace_experiment(
             f"Marketplace experiment started:\nbusinesses={len(businesses)}\ncustomers={len(customers)}\ndata_dir={data_dir}\nexperiment_name:{experiment_name}",
         )
 
-        # Create agents from loaded profiles
-        business_agents = [
-            BusinessAgent(business, marketplace_launcher.server_url)
-            for business in businesses
-        ]
-
-        customer_agents = [
-            CustomerAgent(
-                customer,
-                marketplace_launcher.server_url,
-                search_algorithm=search_algorithm,
-                search_bandwidth=search_bandwidth,
-                max_steps=customer_max_steps,
-                budget=budget_by_customer.get(customer.id),
-            )
-            for customer in customers
-        ]
-
-        # Create agent launcher and run agents with dependency management
+        # Run every round with fresh agents; a round starts after the previous one is fully done
+        messages_floor: int | None = None
         async with AgentLauncher(marketplace_launcher.server_url) as agent_launcher:
-            try:
-                await agent_launcher.run_agents_with_dependencies(
-                    primary_agents=customer_agents, dependent_agents=business_agents
-                )
-            except KeyboardInterrupt:
-                logger.warning("Simulation interrupted by user")
+            for round_number in range(1, rounds + 1):
+                business_agents = [
+                    BusinessAgent(
+                        business,
+                        marketplace_launcher.server_url,
+                        round_number=round_number,
+                        messages_after_index=messages_floor,
+                    )
+                    for business in businesses
+                ]
+
+                customer_agents = [
+                    CustomerAgent(
+                        customer,
+                        marketplace_launcher.server_url,
+                        search_algorithm=search_algorithm,
+                        search_bandwidth=search_bandwidth,
+                        max_steps=customer_max_steps,
+                        budget=budget_by_customer.get(customer.id),
+                        round_number=round_number,
+                        messages_after_index=messages_floor,
+                    )
+                    for customer in customers
+                ]
+
+                try:
+                    await agent_launcher.run_agents_with_dependencies(
+                        primary_agents=customer_agents,
+                        dependent_agents=business_agents,
+                    )
+                except KeyboardInterrupt:
+                    logger.warning("Simulation interrupted by user")
+                    break
+
+                # Only a following round needs the floor, so a one-round run stays stock
+                if round_number < rounds:
+                    assert marketplace_launcher.server is not None
+                    messages_floor = await _last_action_index(
+                        marketplace_launcher.server.state.database_controller
+                    )
 
         # Convert PostgreSQL database to SQLite (if requested)
         if export_sqlite:
