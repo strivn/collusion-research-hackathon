@@ -11,6 +11,11 @@ from magentic_marketplace.experiments.budgets import (
     assign_budgets,
     save_budgets,
 )
+from magentic_marketplace.experiments.informant import (
+    UndercoverPick,
+    pick_undercover_seller,
+    save_undercover_pick,
+)
 from magentic_marketplace.experiments.round_scores import compute_round_tables
 from magentic_marketplace.experiments.run_config import BudgetConfig, UndercoverConfig
 from magentic_marketplace.experiments.seller_memory import build_seller_memories
@@ -78,8 +83,17 @@ async def run_marketplace_experiment(
     print(f"Loaded {len(customers)} customers and {len(businesses)} businesses")
 
     # Pick the undercover seller and record it in the run folder
+    undercover_seller_id: str | None = None
     if undercover_informant is not None:
-        raise NotImplementedError
+        undercover_seller_id = pick_undercover_seller(
+            [business.id for business in businesses], undercover_informant.seed
+        )
+        save_undercover_pick(
+            UndercoverPick(
+                seed=undercover_informant.seed, seller_id=undercover_seller_id
+            ),
+            Path.cwd(),
+        )
 
     # Assign customer budgets and record them in the run folder
     assignments: list[CustomerBudget] = []
@@ -173,6 +187,7 @@ async def run_marketplace_experiment(
                         talk_phase=talk_phase,
                         other_sellers=other_sellers[business.id],
                         round_gate=round_gate,
+                        undercover=business.id == undercover_seller_id,
                     )
                     for business in businesses
                 ]

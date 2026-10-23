@@ -87,8 +87,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._talk_phase = talk_phase
         self._other_sellers = other_sellers or []
         self._round_gate = round_gate
-        if undercover:
-            raise NotImplementedError
+        self._undercover = undercover
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
@@ -262,6 +261,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             self.round_number,
             self._memory,
             channel.messages,
+            undercover=self._undercover,
         )
         decision, _ = await self.generate_struct(prompt, TalkDecision)
 
@@ -308,6 +308,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                         memory=self._memory,
                         channel_messages=channel_messages,
                         seller_names=dict(self._other_sellers),
+                        undercover=self._undercover,
                     )
                     round_prices = result.prices
                     self.round_notes = result.notes

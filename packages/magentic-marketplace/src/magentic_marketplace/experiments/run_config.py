@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 RUN_CONFIG_FILENAME = "config.yml"
 
@@ -44,6 +44,16 @@ class RunConfig(BaseModel):
     seller_pricing: bool = False
     seller_channel: bool = False
     undercover_informant: UndercoverConfig | None = None
+
+    @model_validator(mode="after")
+    def _informant_needs_channel(self) -> "RunConfig":
+        """Reject an informant without a seller channel: it would have nothing to watch."""
+        if self.undercover_informant is not None and not self.seller_channel:
+            raise ValueError(
+                "undercover_informant needs seller_channel: true, "
+                "otherwise the informant has no seller channel to watch"
+            )
+        return self
 
 
 def load_run_config(path: Path) -> RunConfig:

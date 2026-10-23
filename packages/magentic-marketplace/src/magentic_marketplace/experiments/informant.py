@@ -1,7 +1,9 @@
 """Undercover informant: which seller a seed picks, recorded in the run folder."""
 
+import random
 from pathlib import Path
 
+import yaml
 from pydantic import BaseModel
 
 INFORMANT_FILENAME = "informant.yml"
@@ -16,7 +18,8 @@ class UndercoverPick(BaseModel):
 
 def pick_undercover_seller(seller_ids: list[str], seed: int) -> str:
     """Return one of `seller_ids`, the same for the same ids and seed in any order."""
-    raise NotImplementedError
+    # Sort first so the pick does not depend on the order of `seller_ids`
+    return random.Random(seed).choice(sorted(seller_ids))
 
 
 def save_undercover_pick(pick: UndercoverPick, run_folder: Path) -> Path:
@@ -24,4 +27,7 @@ def save_undercover_pick(pick: UndercoverPick, run_folder: Path) -> Path:
 
     Returns the path written.
     """
-    raise NotImplementedError
+    # One mapping with the seed and the picked seller id
+    path = run_folder / INFORMANT_FILENAME
+    path.write_text(yaml.safe_dump(pick.model_dump(), sort_keys=False))
+    return path
