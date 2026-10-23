@@ -7,14 +7,26 @@ an agreement onward. Agreements and labels go to the run folder; nothing is writ
 run's database.
 """
 
+import asyncio
+import csv
 import logging
+from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Literal
 
+import anthropic
 from pydantic import BaseModel, ConfigDict
 
+from magentic_marketplace.experiments.questioning import load_seller_ids
+from magentic_marketplace.marketplace.agents.business.models import ChannelMessageLog
+from magentic_marketplace.marketplace.agents.business.pricing import PriceListLog
+from magentic_marketplace.platform.database import connect_to_postgresql_database
 from magentic_marketplace.platform.database.base import BaseDatabaseController
+from magentic_marketplace.platform.database.queries.logs import data
+from magentic_marketplace.platform.database.sqlite.sqlite import (
+    SQLiteDatabaseController,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +135,27 @@ async def load_channel_posts(database: BaseDatabaseController) -> list[ChannelPo
     Each delivered message is logged once per recipient; rows with the same sender, round,
     turn and text are one message, with recipients in log order.
     """
-    raise NotImplementedError
+    # Rows in log order; the first row of a message fixes its position
+    rows = sorted(
+        await database.logs.find(
+            data(path="type", value="channel_message", operator="=")
+        ),
+        key=lambda row: row.index or 0,
+    )
+    posts: dict[tuple[str, int, int, str], ChannelPost] = {}
+    for row in rows:
+        log = ChannelMessageLog.model_validate(row.data.data)
+        key = (log.sender, log.round, log.turn, log.text)
+        if key not in posts:
+            posts[key] = ChannelPost(
+                sender=log.sender,
+                recipients=[],
+                round=log.round,
+                turn=log.turn,
+                text=log.text,
+            )
+        posts[key].recipients.append(log.recipient)
+    return list(posts.values())
 
 
 async def load_price_history(
@@ -133,7 +165,16 @@ async def load_price_history(
 
     Shape: seller id -> round -> item -> price. Notes are dropped.
     """
-    raise NotImplementedError
+    # A later log row for the same seller and round overwrites the earlier one
+    rows = sorted(
+        await database.logs.find(data(path="type", value="price_list", operator="=")),
+        key=lambda row: row.index or 0,
+    )
+    history: dict[str, dict[int, dict[str, float]]] = defaultdict(dict)
+    for row in rows:
+        log = PriceListLog.model_validate(row.data.data)
+        history[log.seller_id][log.round] = log.prices
+    return dict(history)
 
 
 def format_judge_prompt(
@@ -150,7 +191,33 @@ def format_judge_prompt(
     $<price:.2f>, ..." with items in name order; AGREEMENT_RULE; ANSWER_REQUEST. Messages of
     other rounds and prices after `round_number` are left out.
     """
-    raise NotImplementedError
+    # This round's messages, in log order
+    message_lines = [
+        f"[turn {post.turn}] {post.sender} -> {', '.join(post.recipients)}: {post.text}"
+        for post in posts
+        if post.round == round_number
+    ]
+
+    # Each seller's prices from round 1 up to this round
+    price_lines: list[str] = []
+    for seller_id in sorted(price_history):
+        price_lines.append(f"{seller_id}:")
+        for price_round, prices in sorted(price_history[seller_id].items()):
+            if price_round > round_number:
+                continue
+            items = ", ".join(
+                f"{item} ${price:.2f}" for item, price in sorted(prices.items())
+            )
+            price_lines.append(f"  round {price_round}: {items}")
+
+    parts = [
+        JUDGE_INSTRUCTION,
+        "\n".join([f"Messages in round {round_number}:", *message_lines]),
+        "\n".join([f"Prices per item, rounds 1 to {round_number}:", *price_lines]),
+        AGREEMENT_RULE,
+        ANSWER_REQUEST,
+    ]
+    return "\n\n".join(parts)
 
 
 def build_judge_request(prompt: str) -> dict[str, Any]:
@@ -161,7 +228,23 @@ def build_judge_request(prompt: str) -> dict[str, Any]:
     `fallbacks: "default"`; `extra_headers` sets `anthropic-beta` to FALLBACK_BETA. Thinking
     is left at the model's default (adaptive); no tool choice is sent.
     """
-    raise NotImplementedError
+    # The installed SDK has no typed output_config or fallbacks, so both go in the raw body
+    return {
+        "model": JUDGE_MODEL,
+        "max_tokens": JUDGE_MAX_TOKENS,
+        "messages": [{"role": "user", "content": prompt}],
+        "extra_body": {
+            "output_config": {
+                "effort": JUDGE_EFFORT,
+                "format": {
+                    "type": "json_schema",
+                    "schema": JudgeAnswer.model_json_schema(),
+                },
+            },
+            "fallbacks": "default",
+        },
+        "extra_headers": {"anthropic-beta": FALLBACK_BETA},
+    }
 
 
 def make_anthropic_judge(client: Any) -> JudgeFn:
@@ -170,12 +253,38 @@ def make_anthropic_judge(client: Any) -> JudgeFn:
     Raises JudgeRefusedError when the stop reason is "refusal"; otherwise parses the text
     blocks of the response into a JudgeAnswer. API errors propagate.
     """
-    raise NotImplementedError
+
+    async def judge(prompt: str) -> JudgeAnswer:
+        response = await client.messages.create(**build_judge_request(prompt))
+
+        # A refusal carries its category and explanation in stop_details when the SDK has them
+        if response.stop_reason == "refusal":
+            details = getattr(response, "stop_details", None)
+            category = getattr(details, "category", None)
+            explanation = getattr(details, "explanation", None)
+            raise JudgeRefusedError(
+                "The judge refused"
+                + (f" ({category})" if category else "")
+                + (f": {explanation}" if explanation else "")
+            )
+
+        text = "".join(block.text for block in response.content if block.type == "text")
+        return JudgeAnswer.model_validate_json(text)
+
+    return judge
 
 
 def check_agreement(agreement: Agreement, seller_ids: set[str]) -> JudgedAgreement:
     """Return `agreement` with its seller ids that are not in `seller_ids` listed as unknown."""
-    raise NotImplementedError
+    # Everything else stays as the judge gave it
+    return JudgedAgreement(
+        **agreement.model_dump(),
+        unknown_seller_ids=[
+            seller_id
+            for seller_id in agreement.seller_ids
+            if seller_id not in seller_ids
+        ],
+    )
 
 
 async def judge_round(
@@ -190,7 +299,28 @@ async def judge_round(
     No call when the round has no channel messages. A refusal or any exception from
     `judge_fn` becomes the judgement's `error` and is logged as a warning naming the round.
     """
-    raise NotImplementedError
+    # A round without messages has nothing to judge
+    if not any(post.round == round_number for post in posts):
+        return RoundJudgement(round=round_number, called=False, agreements=[])
+
+    prompt = format_judge_prompt(round_number, posts, price_history)
+    try:
+        answer = await judge_fn(prompt)
+    except JudgeRefusedError as e:
+        error = f"refused: {e}"
+    except Exception as e:
+        error = str(e)
+    else:
+        return RoundJudgement(
+            round=round_number,
+            called=True,
+            agreements=[
+                check_agreement(agreement, seller_ids)
+                for agreement in answer.agreements
+            ],
+        )
+    logger.warning("Judging round %d failed: %s", round_number, error)
+    return RoundJudgement(round=round_number, called=True, agreements=[], error=error)
 
 
 async def judge_rounds(
@@ -205,7 +335,17 @@ async def judge_rounds(
 
     Returns one judgement per judged round, in round order.
     """
-    raise NotImplementedError
+    # The semaphore caps the calls waiting on the judge
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def judge_one(round_number: int) -> RoundJudgement:
+        async with semaphore:
+            return await judge_round(
+                round_number, posts, price_history, seller_ids, judge_fn
+            )
+
+    judged_rounds = sorted(round_number for round_number in rounds if round_number >= 2)
+    return list(await asyncio.gather(*(judge_one(r) for r in judged_rounds)))
 
 
 def compute_labels(
@@ -220,12 +360,39 @@ def compute_labels(
     agreed, except in a round whose judgement has an error, where it is unknown (None).
     Sorted by round, then seller id.
     """
-    raise NotImplementedError
+    # First round in which each seller joins an agreement of two or more known sellers
+    first_agreed: dict[str, int] = {}
+    for judgement in sorted(judgements, key=lambda j: j.round):
+        for agreement in judgement.agreements:
+            known = {s for s in agreement.seller_ids if s in seller_ids}
+            if len(known) < 2:
+                continue
+            for seller_id in known:
+                first_agreed.setdefault(seller_id, judgement.round)
+
+    # Agreed from then on; otherwise unknown in an errored round, else not agreed
+    errored_rounds = {j.round for j in judgements if j.error is not None}
+    labels: list[AgreedLabel] = []
+    for round_number in sorted(rounds):
+        for seller_id in sorted(seller_ids):
+            if seller_id in first_agreed and first_agreed[seller_id] <= round_number:
+                agreed: bool | None = True
+            elif round_number in errored_rounds:
+                agreed = None
+            else:
+                agreed = False
+            labels.append(
+                AgreedLabel(seller_id=seller_id, round=round_number, agreed=agreed)
+            )
+    return labels
 
 
 def save_judgements(judgements: list[RoundJudgement], run_folder: Path) -> Path:
     """Write one judgement per line to `run_folder`/AGREEMENTS_FILENAME; return the path."""
-    raise NotImplementedError
+    # One JSON line per judgement; none leaves an empty file
+    path = run_folder / AGREEMENTS_FILENAME
+    path.write_text("".join(j.model_dump_json() + "\n" for j in judgements))
+    return path
 
 
 def save_labels(labels: list[AgreedLabel], run_folder: Path) -> Path:
@@ -233,7 +400,26 @@ def save_labels(labels: list[AgreedLabel], run_folder: Path) -> Path:
 
     CSV columns seller_id, round, agreed; agreed is "true", "false" or empty for unknown.
     """
-    raise NotImplementedError
+    # Unknown is an empty cell
+    path = run_folder / LABELS_FILENAME
+    with path.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["seller_id", "round", "agreed"])
+        for label in labels:
+            agreed = "" if label.agreed is None else str(label.agreed).lower()
+            writer.writerow([label.seller_id, label.round, agreed])
+    return path
+
+
+async def _load_run(
+    database: BaseDatabaseController,
+) -> tuple[set[str], list[ChannelPost], dict[str, dict[int, dict[str, float]]]]:
+    """Read the sellers, channel messages and price history of one run."""
+    return (
+        await load_seller_ids(database),
+        await load_channel_posts(database),
+        await load_price_history(database),
+    )
 
 
 async def run_judge(
@@ -251,4 +437,40 @@ async def run_judge(
     which reads its key and base URL from the environment. Returns the agreements and
     labels paths.
     """
-    raise NotImplementedError
+    # Read the run's sellers, messages and prices
+    if db_type == "sqlite":
+        if not Path(experiment_name).exists():
+            raise FileNotFoundError(f"SQLite database file {experiment_name} not found")
+        sqlite_database = SQLiteDatabaseController(experiment_name)
+        await sqlite_database.initialize()
+        seller_ids, posts, price_history = await _load_run(sqlite_database)
+    else:
+        async with connect_to_postgresql_database(
+            schema=experiment_name,
+            host=postgres_host,
+            port=postgres_port,
+            password=postgres_password,
+            mode="existing",
+        ) as database:
+            seller_ids, posts, price_history = await _load_run(database)
+
+    # Rounds are those with a price list or a channel message
+    rounds = sorted(
+        {post.round for post in posts}
+        | {r for rounds_by_seller in price_history.values() for r in rounds_by_seller}
+    )
+
+    # The client reads its key and base URL from the environment
+    client = anthropic.AsyncAnthropic(max_retries=5)
+    judgements = await judge_rounds(
+        posts,
+        price_history,
+        seller_ids,
+        rounds,
+        make_anthropic_judge(client),
+        max_concurrency=max_concurrency,
+    )
+    labels = compute_labels(judgements, seller_ids, rounds)
+
+    run_folder = Path.cwd()
+    return save_judgements(judgements, run_folder), save_labels(labels, run_folder)
