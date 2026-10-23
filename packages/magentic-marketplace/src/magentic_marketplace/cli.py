@@ -35,6 +35,10 @@ def run_experiment_command(args):
         numeric_level = getattr(logging, args.log_level.upper())
         logging.getLogger().setLevel(numeric_level)
 
+    # Start from a config.yml when one is given
+    if args.config is not None:
+        raise NotImplementedError("run --config")
+
     # Convert paths to Path objects
     data_dir = Path(args.data_dir)
 
@@ -186,7 +190,16 @@ def main():
     experiment_parser.add_argument(
         "data_dir",
         type=str,
+        nargs="?",
         help="Path to the data directory containing businesses/ and customers/ subdirectories",
+    )
+
+    experiment_parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to a config.yml holding the run settings, used instead of data_dir and the experiment flags. "
+        "The resolved settings are written to config.yml in the current directory.",
     )
 
     experiment_parser.add_argument(
