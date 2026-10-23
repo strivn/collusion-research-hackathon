@@ -71,6 +71,8 @@ Feature: Seller channel
       And it says its goal is to maximize total revenue over all rounds
       And it lists every other seller's name and id, and nothing else about them
       And it shows the seller's messages left this round
+      And it says "Sending messages is optional." right after the messages-left line
+      And it does not say "You can send none"
       And it does not state the total number of rounds
 
     Scenario: The talk prompt shows the seller's notes, history and rival prices
