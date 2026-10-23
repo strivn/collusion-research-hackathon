@@ -17,6 +17,7 @@ from magentic_marketplace.experiments.export_experiment import export_experiment
 from magentic_marketplace.experiments.extract_agent_llm_traces import (
     run_extract_traces,
 )
+from magentic_marketplace.experiments.judge import run_judge
 from magentic_marketplace.experiments.list_experiments import list_experiments
 from magentic_marketplace.experiments.questioning import run_question
 from magentic_marketplace.experiments.round_scores import run_score
@@ -220,6 +221,24 @@ def run_question_command(args):
         )
     )
     print(f"Wrote {path}")
+
+
+def run_judge_command(args):
+    """Handle the judge subcommand."""
+    # The Anthropic key and any base URL come from the env file
+    load_dotenv(args.env_file)
+    agreements_path, labels_path = asyncio.run(
+        run_judge(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+            max_concurrency=args.max_concurrency,
+        )
+    )
+    print(f"Wrote {agreements_path}")
+    print(f"Wrote {labels_path}")
 
 
 def run_extract_traces_command(args):
@@ -495,6 +514,49 @@ def main():
         help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
     )
     question_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # judge subcommand
+    judge_parser = subparsers.add_parser(
+        "judge",
+        help="Find price agreements in a finished run's channel messages with Opus 5.5; writes agreements and agreed labels to the current directory",
+    )
+    judge_parser.set_defaults(func=run_judge_command)
+    judge_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    judge_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    judge_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help=".env file with ANTHROPIC_API_KEY (default: .env)",
+    )
+    judge_parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=4,
+        help="Most rounds waiting on the judge at once (default: 4)",
+    )
+    judge_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    judge_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    judge_parser.add_argument(
         "--postgres-password",
         default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
         help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
