@@ -23,6 +23,7 @@ from ..proposal_storage import OrderProposalStorage
 from .models import BusinessSummary, ChannelMessageLog
 from .pricing import PriceListLog, SellerMemory, set_round_prices
 from .responses import ResponseHandler
+from .talk import TalkPhase
 
 
 class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
@@ -39,6 +40,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         seller_pricing: bool = False,
         current_prices: dict[str, float] | None = None,
         memory: SellerMemory | None = None,
+        talk_phase: TalkPhase | None = None,
+        other_sellers: list[tuple[str, str]] | None = None,
     ):
         """Initialize the business agent.
 
@@ -54,6 +57,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             current_prices: Last round's price per menu item, the starting point of this round's
                 pricing call. None means the menu prices.
             memory: Notes, sales history and rivals' last prices shown in this round's pricing call.
+            talk_phase: This round's talk phase, joined before pricing. None means no talk (stock).
+            other_sellers: Every other seller as (id, name), listed in the talk prompt.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -73,6 +78,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._seller_pricing = seller_pricing
         self._current_prices = current_prices
         self._memory = memory
+        self._talk_phase = talk_phase
+        self._other_sellers = other_sellers or []
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
@@ -235,8 +242,16 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         result = await self.execute_action(FetchChannelMessages())
         return FetchChannelMessagesResponse.model_validate(result.content)
 
+    async def talk_turn(self, turn: int) -> list[str]:
+        """Make this seller's talk call for `turn`, send what it decides, return the ids delivered to."""
+        raise NotImplementedError("talk_turn")
+
     async def on_started(self):
         """Handle when the business agent starts."""
+        # Talk with other sellers before pricing
+        if self._talk_phase is not None:
+            raise NotImplementedError("talk phase in BusinessAgent.on_started")
+
         # Set this round's price list before serving any customer
         if self._seller_pricing:
             if self.round_number == 1:

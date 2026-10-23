@@ -60,6 +60,7 @@ async def run_marketplace_experiment(
     budget: BudgetConfig | None = None,
     rounds: int = 1,
     seller_pricing: bool = False,
+    seller_channel: bool = False,
 ):
     """Run a marketplace experiment using YAML configuration files."""
     # Load businesses and customers from YAML files
@@ -127,6 +128,10 @@ async def run_marketplace_experiment(
                 "Customer budgets assigned",
                 data=BudgetAssignmentLog(budgets=assignments),
             )
+
+        # Let sellers talk to each other before pricing
+        if seller_channel:
+            raise NotImplementedError("seller_channel in run_marketplace_experiment")
 
         # Run every round with fresh agents; a round starts after the previous one is fully done
         messages_floor: int | None = None

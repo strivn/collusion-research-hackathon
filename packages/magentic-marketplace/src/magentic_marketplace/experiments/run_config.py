@@ -34,6 +34,7 @@ class RunConfig(BaseModel):
     budget: BudgetConfig | None = None
     rounds: int = 1
     seller_pricing: bool = False
+    seller_channel: bool = False
 
 
 def load_run_config(path: Path) -> RunConfig:

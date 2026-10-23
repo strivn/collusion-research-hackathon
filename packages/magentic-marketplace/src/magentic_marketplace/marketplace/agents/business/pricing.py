@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from magentic_marketplace.platform.logger import MarketplaceLogger
 
+from ...actions import ChannelMessage
 from ...shared.models import Business
 
 REVENUE_GOAL = "Your goal is to maximize total revenue over all rounds."
@@ -115,6 +116,7 @@ def format_pricing_prompt(
     round_number: int,
     context: str | None = None,
     memory: SellerMemory | None = None,
+    channel_messages: list[ChannelMessage] | None = None,
 ) -> str:
     """Prompt asking the seller to set a price for every menu item for `round_number`.
 
@@ -127,6 +129,10 @@ def format_pricing_prompt(
     price_lines = "\n".join(
         f"- {item_name}: ${price:.2f}" for item_name, price in current_prices.items()
     )
+    # Show this round's channel messages
+    if channel_messages is not None:
+        raise NotImplementedError("channel messages in pricing prompt")
+
     # Show the seller's memory before the closing instruction
     memory_section = "" if memory is None else f"{_format_memory(memory)}\n\n"
     prompt = f"""You are the owner of {business.name}. You are setting prices for round {round_number}. You will quote these prices to every customer this round.
@@ -173,6 +179,7 @@ async def set_round_prices(
     logger: MarketplaceLogger,
     retries: int = 3,
     memory: SellerMemory | None = None,
+    channel_messages: list[ChannelMessage] | None = None,
 ) -> PricingResult:
     """Ask the seller for its price list and notes for `round_number` and return them.
 
