@@ -169,6 +169,11 @@ def run_analysis_command(args):
     )
 
 
+def run_experiment_runner_command(args):
+    """Handle the experiment subcommand."""
+    raise NotImplementedError("experiment command")
+
+
 def run_score_command(args):
     """Handle the score subcommand."""
     customer_path, seller_path = asyncio.run(
@@ -377,6 +382,21 @@ def main():
         "--export-filename",
         default=None,
         help="Output filename for SQLite export (default: <experiment_name>.db). Only used with --export.",
+    )
+
+    # experiment subcommand
+    experiment_runner_parser = subparsers.add_parser(
+        "experiment",
+        help="Run every arm x repetition of an experiment config, in parallel up to its cap",
+    )
+    experiment_runner_parser.set_defaults(func=run_experiment_runner_command)
+    experiment_runner_parser.add_argument(
+        "experiment_config", help="Path to the experiment config YAML"
+    )
+    experiment_runner_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help=".env file passed to every run (default: .env)",
     )
 
     # score subcommand
