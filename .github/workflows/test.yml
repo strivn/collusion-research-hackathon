@@ -6,8 +6,8 @@ permissions:
 on:
   push:
     branches: [ main, develop ]
+  # Every PR, including stacked PRs whose base is a feature or stack branch
   pull_request:
-    branches: [ main, develop ]
 
 jobs:
   test:
