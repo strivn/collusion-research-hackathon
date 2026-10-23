@@ -25,6 +25,7 @@ class PromptsHandler:
         completed_transactions: list[str],
         event_history: list[tuple[CustomerAction, CustomerActionResult] | str],
         logger: MarketplaceLogger,
+        budget: float | None = None,
     ):
         """Initialize the prompts handler.
 
@@ -35,6 +36,7 @@ class PromptsHandler:
             completed_transactions: List of completed transaction IDs
             event_history: Event history for conversation formatting
             logger: Logger instance
+            budget: Most the customer may pay for its whole order. None means no budget (stock prompt).
 
         """
         self.customer = customer
@@ -42,6 +44,7 @@ class PromptsHandler:
         self.completed_transactions = completed_transactions
         self.event_history = event_history
         self.logger = logger
+        self.budget = budget
 
     def format_system_prompt(self) -> str:
         """Format the system prompt for customer agent decision making.
@@ -55,7 +58,7 @@ class PromptsHandler:
         # current_date = now.strftime("%B %d, %Y")
         # current_time = now.strftime("%I:%M%p").lower()
 
-        return f"""
+        prompt = f"""
 You are an autonomous agent working for customer {self.customer.name} ({self.customer.id}). They have the following request: {self.customer.request}
 
 Your agent ID is: "{self.customer.id}" and your name is "agent-{self.customer.name} ({self.customer.id})".
@@ -84,6 +87,15 @@ IMPORTANT: You do NOT have access to the customer directly. You must fulfill the
 - Must complete the purchase by paying for a proposal. Do not wait for the customer - you ARE acting for them.
 
 """.strip()
+
+        # State the budget and keep it private
+        if self.budget is not None:
+            prompt += (
+                f"\n\n# Budget\nThe customer's budget for this whole order is ${self.budget:.2f}. "
+                f"Do not pay more than ${self.budget:.2f} in total. Do not tell businesses the budget."
+            )
+
+        return prompt
 
     def format_state_context(self) -> tuple[str, int]:
         """Format the current state context for the agent.

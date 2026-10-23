@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from magentic_marketplace import cli
+from magentic_marketplace.experiments.run_config import RunConfig
 from magentic_marketplace.experiments.utils import (
     load_businesses_from_yaml,
     load_customers_from_yaml,
@@ -214,11 +215,12 @@ def test_resolved_config_is_written_to_the_run_folder(
     saved_path = tmp_path / "research" / "results" / "cfg_test" / "config.yml"
     assert saved_path.is_file()
     saved = yaml.safe_load(saved_path.read_text())
-    assert saved == {
-        "data": str(MEXICAN_3_9),
-        "experiment_name": "cfg_test",
-        **STOCK_DEFAULTS,
-    }
+    # Every RunConfig setting is listed; later features add their own keys
+    assert set(saved) == set(RunConfig.model_fields)
+    assert saved["data"] == str(MEXICAN_3_9)
+    assert saved["experiment_name"] == "cfg_test"
+    for name, value in STOCK_DEFAULTS.items():
+        assert saved[name] == value
     call = recorded_runs[0]
     assert saved["customer_max_steps"] == call["customer_max_steps"]
     assert saved["search_algorithm"] == call["search_algorithm"]
