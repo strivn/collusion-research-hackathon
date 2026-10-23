@@ -129,10 +129,11 @@ def compute_acted(
     A seller is agreed as in `judge.compute_labels`. Its latest agreement in round r is
     every agreement with at least two known sellers that it joined in the latest round up
     to r in which it joined any. It acted when its round-r prices follow every one of
-    them (`follows`, with its round r-1 prices as previous). One agreement not followed
-    means not acted. Acted is None when any agreement's answer is None, when it has no
-    round-r price list, or when the judge failed on round r. Sellers not agreed in a round
-    get no label. Sorted by round, then seller id.
+    them (`follows`, with its round r-1 prices as previous); agreements covering none of
+    its items are skipped. One agreement not followed means not acted, even when another
+    is unknown. Otherwise acted is None when any agreement's answer is None, when none
+    applies, when it has no round-r price list, or when the judge failed on round r.
+    Sellers not agreed in a round get no label. Sorted by round, then seller id.
     """
     # Agreements with two or more known sellers, per seller per judged round
     joined: dict[str, dict[int, list[Agreement]]] = {}
