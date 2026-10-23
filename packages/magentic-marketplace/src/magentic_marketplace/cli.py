@@ -16,6 +16,11 @@ from magentic_marketplace.experiments.extract_agent_llm_traces import (
 from magentic_marketplace.experiments.list_experiments import list_experiments
 from magentic_marketplace.experiments.run_analytics import run_analytics
 from magentic_marketplace.experiments.run_audit import run_audit
+from magentic_marketplace.experiments.run_config import (
+    RunConfig,
+    load_run_config,
+    save_run_config,
+)
 from magentic_marketplace.experiments.run_experiment import run_marketplace_experiment
 from magentic_marketplace.experiments.utils import setup_logging
 from magentic_marketplace.ui import run_ui_server
@@ -35,12 +40,51 @@ def run_experiment_command(args):
         numeric_level = getattr(logging, args.log_level.upper())
         logging.getLogger().setLevel(numeric_level)
 
-    # Start from a config.yml when one is given
+    # Take the run settings from the config file, or from the flags with stock defaults
     if args.config is not None:
-        raise NotImplementedError("run --config")
-
-    # Convert paths to Path objects
-    data_dir = Path(args.data_dir)
+        conflicting_flags = {
+            "data_dir": args.data_dir,
+            "--experiment-name": args.experiment_name,
+            "--search-algorithm": args.search_algorithm,
+            "--search-bandwidth": args.search_bandwidth,
+            "--customer-max-steps": args.customer_max_steps,
+        }
+        for flag, value in conflicting_flags.items():
+            if value is not None:
+                raise ValueError(f"--config cannot be combined with {flag}")
+        config = load_run_config(Path(args.config))
+        experiment_name = config.experiment_name
+        search_algorithm = config.search_algorithm
+        search_bandwidth = config.search_bandwidth
+        customer_max_steps = config.customer_max_steps
+        data_dir = Path(config.data)
+    else:
+        if args.data_dir is None:
+            raise ValueError("data_dir is required unless --config is given")
+        config = None
+        # A flag left unset takes the stock default declared on RunConfig
+        stock = {
+            name: field.default
+            for name, field in RunConfig.model_fields.items()
+            if not field.is_required()
+        }
+        experiment_name = args.experiment_name
+        search_algorithm = (
+            stock["search_algorithm"]
+            if args.search_algorithm is None
+            else args.search_algorithm
+        )
+        search_bandwidth = (
+            stock["search_bandwidth"]
+            if args.search_bandwidth is None
+            else args.search_bandwidth
+        )
+        customer_max_steps = (
+            stock["customer_max_steps"]
+            if args.customer_max_steps is None
+            else args.customer_max_steps
+        )
+        data_dir = Path(args.data_dir)
 
     # Validate data directory structure
     if not data_dir.exists():
@@ -68,12 +112,16 @@ def run_experiment_command(args):
             f"No environment variables loaded from env file at path: {env_file}"
         )
 
+    # Record the settings this run used in the run folder
+    if config is not None:
+        save_run_config(config, Path.cwd())
+
     logger.info(
         "Marketplace Experiment Runner\n"
         "This experiment will:\n"
         f"1. Load businesses from: {businesses_dir}\n"
         f"2. Load customers from: {customers_dir}\n"
-        f"3. Create a Postgres database schema: {args.experiment_name}\n"
+        f"3. Create a Postgres database schema: {experiment_name}\n"
         "4. Start a marketplace server with simple marketplace protocol\n"
         "5. Register all business and customer agents\n"
         "6. Run the marketplace simulation\n"
@@ -83,10 +131,10 @@ def run_experiment_command(args):
     asyncio.run(
         run_marketplace_experiment(
             data_dir=data_dir,
-            experiment_name=args.experiment_name,
-            search_algorithm=args.search_algorithm,
-            search_bandwidth=args.search_bandwidth,
-            customer_max_steps=args.customer_max_steps,
+            experiment_name=experiment_name,
+            search_algorithm=search_algorithm,
+            search_bandwidth=search_bandwidth,
+            customer_max_steps=customer_max_steps,
             postgres_host=args.postgres_host,
             postgres_port=args.postgres_port,
             postgres_password=args.postgres_password,
@@ -205,22 +253,22 @@ def main():
     experiment_parser.add_argument(
         "--search-algorithm",
         type=str,
-        default="lexical",
+        default=None,
         help="Search algorithm for customer agents (default: lexical)",
     )
 
     experiment_parser.add_argument(
         "--search-bandwidth",
         type=int,
-        default=10,
+        default=None,
         help="Search bandwidth for customer agents (default: 10)",
     )
 
     experiment_parser.add_argument(
         "--customer-max-steps",
         type=int,
-        default=100,
-        help="Maximum number of steps a customer agent can take before stopping.",
+        default=None,
+        help="Maximum number of steps a customer agent can take before stopping (default: 100).",
     )
 
     experiment_parser.add_argument(
