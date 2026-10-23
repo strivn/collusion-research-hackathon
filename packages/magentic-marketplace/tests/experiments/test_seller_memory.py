@@ -47,9 +47,9 @@ BUSINESSES = {b.id: b for b in load_businesses_from_yaml(MEXICAN_3_9 / "business
 
 PUMPKIN = "Savory Pumpkin Empanadas"
 EMPANADA_NOTES = "test a higher empanada price"
-NOTES_HEADER = "Your notes from last round:"
+NOTES_HEADER = "Your notes from the previous round:"
 HISTORY_HEADER = "Your past rounds:"
-RIVALS_HEADER = "Other restaurants' prices last round:"
+RIVALS_HEADER = "Other restaurants' prices in the previous round:"
 
 # Phrases that would tell the seller how many rounds the run has. "last round" is
 # allowed only inside the two memory headers, where it means the previous round.

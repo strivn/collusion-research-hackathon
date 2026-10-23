@@ -31,9 +31,9 @@ from magentic_marketplace.marketplace.agents.business.pricing import (
 from magentic_marketplace.marketplace.llm.clients.openai import OpenAIConfig
 from magentic_marketplace.marketplace.shared.models import Business
 
-NOTES_HEADER = "Your notes from last round:"
+NOTES_HEADER = "Your notes from the previous round:"
 HISTORY_HEADER = "Your past rounds:"
-RIVALS_HEADER = "Other restaurants' prices last round:"
+RIVALS_HEADER = "Other restaurants' prices in the previous round:"
 NOTES_REQUEST = (
     "Write notes for yourself in the notes field. "
     "They are the only thing you will remember next round."

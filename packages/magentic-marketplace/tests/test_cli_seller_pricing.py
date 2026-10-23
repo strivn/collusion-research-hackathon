@@ -261,6 +261,16 @@ class FakeAgentLauncher:
         FakeAgentLauncher.database.actions.append(10 * round_number)
 
 
+@pytest.fixture(autouse=True)
+def empty_seller_table(monkeypatch):
+    """Serve an empty seller table between rounds; the fake database cannot build one."""
+
+    async def no_rows(database):
+        return [], []
+
+    monkeypatch.setattr(run_experiment, "compute_round_tables", no_rows)
+
+
 @pytest.fixture
 def fake_run(monkeypatch):
     """Patch the run's agents and launchers with fakes; return the recorded cohorts."""
