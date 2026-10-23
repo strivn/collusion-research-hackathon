@@ -80,7 +80,7 @@ def _format_memory(memory: SellerMemory) -> str:
     # Notes come first, only when the seller wrote some
     sections: list[str] = []
     if memory.notes:
-        sections.append(f"Your notes from last round:\n{memory.notes}")
+        sections.append(f"Your notes from the previous round:\n{memory.notes}")
 
     # One line per past round and item
     history_lines = [
@@ -98,7 +98,7 @@ def _format_memory(memory: SellerMemory) -> str:
     ]
     if rival_lines:
         sections.append(
-            "Other restaurants' prices last round:\n" + "\n".join(rival_lines)
+            "Other restaurants' prices in the previous round:\n" + "\n".join(rival_lines)
         )
 
     # The notes are the seller's only memory
