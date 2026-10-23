@@ -23,6 +23,7 @@ class PriceList(BaseModel):
     """A seller's answer to the pricing prompt: one price per menu item."""
 
     prices: list[ItemPrice]
+    notes: str = ""
 
 
 class PriceListLog(BaseModel):
@@ -32,6 +33,80 @@ class PriceListLog(BaseModel):
     seller_id: str
     round: int
     prices: dict[str, float]
+    notes: str = ""
+
+
+class ItemSales(BaseModel):
+    """One menu item's price and sales in one past round."""
+
+    item: str
+    price: float
+    units_sold: int
+    revenue: float
+
+
+class RoundHistory(BaseModel):
+    """A seller's own prices and sales in one past round."""
+
+    round: int
+    items: list[ItemSales]
+
+
+class RivalPrice(BaseModel):
+    """A rival's last-round price for an item this seller also sells."""
+
+    seller_id: str
+    seller_name: str
+    price: float
+
+
+class SellerMemory(BaseModel):
+    """What a seller carries into a pricing step: its notes, its history and rivals' last prices."""
+
+    notes: str | None
+    history: list[RoundHistory]
+    rival_prices: dict[str, list[RivalPrice]]
+
+
+class PricingResult(BaseModel):
+    """The outcome of a pricing step: the round's prices and the seller's notes for next round."""
+
+    prices: dict[str, float]
+    notes: str
+
+
+def _format_memory(memory: SellerMemory) -> str:
+    """Render notes, past rounds and rivals' last prices, then the ask for notes."""
+    # Notes come first, only when the seller wrote some
+    sections: list[str] = []
+    if memory.notes:
+        sections.append(f"Your notes from the previous round:\n{memory.notes}")
+
+    # One line per past round and item
+    history_lines = [
+        f"- Round {past.round}: {sale.item}: ${sale.price:.2f}, {sale.units_sold} sold, revenue ${sale.revenue:.2f}"
+        for past in memory.history
+        for sale in past.items
+    ]
+    sections.append("Your past rounds:\n" + "\n".join(history_lines))
+
+    # One line per item and rival
+    rival_lines = [
+        f"- {item}: {rival.seller_name} ({rival.seller_id}) ${rival.price:.2f}"
+        for item, rivals in memory.rival_prices.items()
+        for rival in rivals
+    ]
+    if rival_lines:
+        sections.append(
+            "Other restaurants' prices in the previous round:\n"
+            + "\n".join(rival_lines)
+        )
+
+    # The notes are the seller's only memory
+    sections.append(
+        "Write notes for yourself in the notes field. They are the only thing you will remember next round."
+    )
+    return "\n\n".join(sections)
 
 
 def format_pricing_prompt(
@@ -39,16 +114,21 @@ def format_pricing_prompt(
     current_prices: dict[str, float],
     round_number: int,
     context: str | None = None,
+    memory: SellerMemory | None = None,
 ) -> str:
     """Prompt asking the seller to set a price for every menu item for `round_number`.
 
     Lists each item with its current price and states REVENUE_GOAL. `context` carries
-    the errors of a rejected price list on a retry.
+    the errors of a rejected price list on a retry. `memory` adds the seller's notes,
+    its prices, units sold and revenue per past round, rivals' last prices, and asks for
+    notes that are the only thing it will remember next round.
     """
     # List each menu item with its current price
     price_lines = "\n".join(
         f"- {item_name}: ${price:.2f}" for item_name, price in current_prices.items()
     )
+    # Show the seller's memory before the closing instruction
+    memory_section = "" if memory is None else f"{_format_memory(memory)}\n\n"
     prompt = f"""You are the owner of {business.name}. You are setting prices for round {round_number}. You will quote these prices to every customer this round.
 
 Your menu items and current prices:
@@ -56,7 +136,7 @@ Your menu items and current prices:
 
 {REVENUE_GOAL}
 
-Set one price, greater than zero, for every menu item."""
+{memory_section}Set one price, greater than zero, for every menu item."""
 
     # Append the errors of a rejected price list on a retry
     if context is not None:
@@ -92,23 +172,30 @@ async def set_round_prices(
     generate_struct_fn: Callable[[str, type], Awaitable[tuple[Any, Any]]],
     logger: MarketplaceLogger,
     retries: int = 3,
-) -> dict[str, float]:
-    """Ask the seller for its price list for `round_number` and return it.
+    memory: SellerMemory | None = None,
+) -> PricingResult:
+    """Ask the seller for its price list and notes for `round_number` and return them.
 
     An invalid list is retried up to `retries` times with the errors in the prompt.
     After the last failure the seller keeps `current_prices` and the failure is logged.
-    The price list in effect is logged as a PriceListLog.
+    The price list in effect is logged as a PriceListLog. The notes are the accepted
+    list's notes, or "" when the seller kept `current_prices` after failures.
     """
     # Ask until the price list is valid, feeding the errors back each retry
     menu_items = list(business.menu_features)
     prices = current_prices
     context: str | None = None
     errors: list[str] = []
+    notes = ""
     for _ in range(retries + 1):
         try:
             price_list, _ = await generate_struct_fn(
                 format_pricing_prompt(
-                    business, current_prices, round_number, context=context
+                    business,
+                    current_prices,
+                    round_number,
+                    context=context,
+                    memory=memory,
                 ),
                 PriceList,
             )
@@ -117,6 +204,7 @@ async def set_round_prices(
                 prices = {
                     item.item_name: round(item.price, 2) for item in price_list.prices
                 }
+                notes = price_list.notes
                 break
         except Exception as e:
             errors = [f"the price list could not be generated: {e}"]
@@ -128,6 +216,8 @@ async def set_round_prices(
 
     logger.info(
         f"Prices for round {round_number}",
-        data=PriceListLog(seller_id=business.id, round=round_number, prices=prices),
+        data=PriceListLog(
+            seller_id=business.id, round=round_number, prices=prices, notes=notes
+        ),
     )
-    return prices
+    return PricingResult(prices=prices, notes=notes)

@@ -136,6 +136,7 @@ class FakeBusinessAgent:
         self.business = business
         self.kwargs = kwargs
         self.round_prices: dict[str, float] | None = None
+        self.round_notes = ""
 
 
 class RecordingLogger:
@@ -259,6 +260,16 @@ class FakeAgentLauncher:
         for customer in primary_agents:
             EVENTS.append(("customer_finished", round_number, customer.customer.id))
         FakeAgentLauncher.database.actions.append(10 * round_number)
+
+
+@pytest.fixture(autouse=True)
+def empty_seller_table(monkeypatch):
+    """Serve an empty seller table between rounds; the fake database cannot build one."""
+
+    async def no_rows(database):
+        return [], []
+
+    monkeypatch.setattr(run_experiment, "compute_round_tables", no_rows)
 
 
 @pytest.fixture
