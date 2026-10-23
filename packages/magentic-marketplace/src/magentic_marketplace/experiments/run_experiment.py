@@ -5,6 +5,8 @@ import socket
 from datetime import datetime
 from pathlib import Path
 
+from magentic_marketplace.experiments.budgets import assign_budgets, save_budgets
+from magentic_marketplace.experiments.run_config import BudgetConfig
 from magentic_marketplace.experiments.utils import (
     load_businesses_from_yaml,
     load_customers_from_yaml,
@@ -35,6 +37,7 @@ async def run_marketplace_experiment(
     export_sqlite: bool = False,
     export_dir: str | None = None,
     export_filename: str | None = None,
+    budget: BudgetConfig | None = None,
 ):
     """Run a marketplace experiment using YAML configuration files."""
     # Load businesses and customers from YAML files
@@ -47,6 +50,13 @@ async def run_marketplace_experiment(
     customers = load_customers_from_yaml(customers_dir)
 
     print(f"Loaded {len(customers)} customers and {len(businesses)} businesses")
+
+    # Assign customer budgets and record them in the run folder
+    budget_by_customer: dict[str, float] = {}
+    if budget is not None:
+        assignments = assign_budgets(customers, budget.multipliers, budget.seed)
+        save_budgets(assignments, Path.cwd())
+        budget_by_customer = {a.customer_id: a.budget for a in assignments}
 
     if experiment_name is None:
         experiment_name = f"marketplace_{len(customers)}_{len(businesses)}_{int(datetime.now().timestamp() * 1000)}"
@@ -101,6 +111,7 @@ async def run_marketplace_experiment(
                 search_algorithm=search_algorithm,
                 search_bandwidth=search_bandwidth,
                 max_steps=customer_max_steps,
+                budget=budget_by_customer.get(customer.id),
             )
             for customer in customers
         ]
