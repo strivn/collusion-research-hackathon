@@ -38,6 +38,7 @@ async def run_marketplace_experiment(
     export_dir: str | None = None,
     export_filename: str | None = None,
     budget: BudgetConfig | None = None,
+    rounds: int = 1,
 ):
     """Run a marketplace experiment using YAML configuration files."""
     # Load businesses and customers from YAML files
@@ -71,6 +72,10 @@ async def run_marketplace_experiment(
             max_size=db_pool_max_size,
             mode="override" if override else "create_new",
         )
+
+    # Repeat the market for several rounds with fresh agents
+    if rounds != 1:
+        raise NotImplementedError("rounds in run_marketplace_experiment")
 
     # Auto-assign port if set to 0
     if server_port == 0:

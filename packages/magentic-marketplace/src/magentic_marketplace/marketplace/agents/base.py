@@ -40,10 +40,32 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
     """Base class for simple marketplace agents with common functionality."""
 
     def __init__(
-        self, profile: TProfile, base_url: str, llm_config: BaseLLMConfig | None = None
+        self,
+        profile: TProfile,
+        base_url: str,
+        llm_config: BaseLLMConfig | None = None,
+        round_number: int = 1,
+        messages_after_index: int | None = None,
     ):
-        """Initialize the simple marketplace agent."""
+        """Initialize the simple marketplace agent.
+
+        Args:
+            profile: The agent's profile
+            base_url: The marketplace server URL
+            llm_config: LLM configuration for the agent
+            round_number: The round this agent acts in; tags its actions and LLM calls.
+            messages_after_index: Ignore messages at or below this row index (earlier rounds).
+                None fetches every message (stock).
+
+        """
         super().__init__(profile, base_url)
+        self.round_number = round_number
+        self.messages_after_index = messages_after_index
+
+        # Rounds after the first and the message floor are new behaviour
+        if round_number != 1 or messages_after_index is not None:
+            raise NotImplementedError("rounds in BaseSimpleMarketplaceAgent")
+
         self.last_fetch_index: int | None = None
         self.llm_config = llm_config or BaseLLMConfig()
         self._seen_message_indexes: set[int] = set()

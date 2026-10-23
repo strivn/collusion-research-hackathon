@@ -22,6 +22,7 @@ class ResponseHandler:
         proposal_storage: OrderProposalStorage,
         logger: MarketplaceLogger,
         generate_struct_fn: Callable[[str, type], Awaitable[tuple[Any, Any]]],
+        round_number: int = 1,
     ):
         """Initialize the response handler.
 
@@ -31,6 +32,7 @@ class ResponseHandler:
             proposal_storage: Proposal storage instance
             logger: Logger instance
             generate_struct_fn: Function to generate structured responses with LLM
+            round_number: The round being served; from round 2 it is part of proposal ids.
 
         """
         self.business = business
@@ -38,6 +40,7 @@ class ResponseHandler:
         self.proposal_storage = proposal_storage
         self.logger = logger
         self.generate_struct_fn = generate_struct_fn
+        self.round_number = round_number
         self.prompts = PromptsHandler(business, logger)
 
     async def generate_response_to_inquiry(

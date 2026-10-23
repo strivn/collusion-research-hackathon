@@ -32,6 +32,7 @@ class RunConfig(BaseModel):
     search_bandwidth: int = 10
     customer_max_steps: int = 100
     budget: BudgetConfig | None = None
+    rounds: int = 1
 
 
 def load_run_config(path: Path) -> RunConfig:
