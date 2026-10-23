@@ -320,8 +320,8 @@ def run_screen_calibrate_command(args):
         f"{name} {rate:.1%}" for name, rate in calibration.held_out_rates.items()
     )
     print(
-        f"Quantiles {calibration.level_percentile}th level, "
-        f"{calibration.gap_percentile}th gap; held-out flag rates: {rates}"
+        f"Quantiles: level percentile {calibration.level_percentile}, "
+        f"gap percentile {calibration.gap_percentile}; held-out flag rates: {rates}"
     )
     if not calibration.target_met:
         print(
