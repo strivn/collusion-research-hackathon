@@ -1083,6 +1083,8 @@ class PostgreSQLDatabaseController(BaseDatabaseController):
         schema: str = "public",
     ):
         """Initialize PostgreSQL database controller with connection pool."""
+        # Postgres stores unquoted schema names in lowercase; use the stored name everywhere
+        schema = schema.lower()
         self._pool = connection_pool
         self._schema = schema
         self._agents = PostgreSQLAgentController(connection_pool, db_timeout, schema)

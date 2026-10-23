@@ -9,6 +9,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from magentic_marketplace.experiments.experiment_runner import (
+    load_experiment_config,
+    run_experiment,
+)
 from magentic_marketplace.experiments.export_experiment import export_experiment
 from magentic_marketplace.experiments.extract_agent_llm_traces import (
     run_extract_traces,
@@ -167,6 +171,20 @@ def run_analysis_command(args):
             fuzzy_match_distance=args.fuzzy_match_distance,
         )
     )
+
+
+def run_experiment_runner_command(args):
+    """Handle the experiment subcommand."""
+    # Run every arm x repetition, print one line per run, fail if any run failed
+    config_path = Path(args.experiment_config)
+    config = load_experiment_config(config_path)
+    outcomes = asyncio.run(
+        run_experiment(config, config_path.parent, Path(args.env_file))
+    )
+    for outcome in outcomes:
+        print(f"{outcome.spec.run_name} {outcome.status}")
+    if any(outcome.status == "failed" for outcome in outcomes):
+        sys.exit(1)
 
 
 def run_score_command(args):
@@ -377,6 +395,21 @@ def main():
         "--export-filename",
         default=None,
         help="Output filename for SQLite export (default: <experiment_name>.db). Only used with --export.",
+    )
+
+    # experiment subcommand
+    experiment_runner_parser = subparsers.add_parser(
+        "experiment",
+        help="Run every arm x repetition of an experiment config, in parallel up to its cap",
+    )
+    experiment_runner_parser.set_defaults(func=run_experiment_runner_command)
+    experiment_runner_parser.add_argument(
+        "experiment_config", help="Path to the experiment config YAML"
+    )
+    experiment_runner_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help=".env file passed to every run (default: .env)",
     )
 
     # score subcommand
