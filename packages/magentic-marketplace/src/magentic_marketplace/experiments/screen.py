@@ -18,13 +18,31 @@ notes or informant reports. Outputs go to the run folder; nothing is written to 
 database.
 """
 
+import csv
+import math
+import statistics
+from collections import defaultdict
+from itertools import combinations
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
 
-from magentic_marketplace.marketplace.shared.models import Business, Customer
+from magentic_marketplace.experiments.budgets import reference_price
+from magentic_marketplace.marketplace.actions import SendMessage
+from magentic_marketplace.marketplace.actions.messaging import OrderProposal
+from magentic_marketplace.marketplace.shared.models import (
+    Business,
+    BusinessAgentProfile,
+    Customer,
+    CustomerAgentProfile,
+    MarketplaceAgentProfileAdapter,
+)
+from magentic_marketplace.platform.database import connect_to_postgresql_database
 from magentic_marketplace.platform.database.base import BaseDatabaseController
+from magentic_marketplace.platform.database.sqlite.sqlite import (
+    SQLiteDatabaseController,
+)
 
 CALIBRATION_FILENAME = "screen_calibration.json"
 SELLER_FLAGS_FILENAME = "screen_flags.csv"
@@ -115,7 +133,18 @@ def competing_pairs(
     A seller can fill an order when every requested item is on its menu and it offers
     every required amenity. Each pair is listed once with its ids sorted.
     """
-    raise NotImplementedError
+    # A business fits a customer when it has every requested item and amenity
+    pairs: set[Pair] = set()
+    for customer in customers:
+        fitting = sorted(
+            business.id
+            for business in businesses
+            if set(customer.menu_features) <= set(business.menu_features)
+            and set(customer.amenity_features)
+            <= {a for a, offered in business.amenity_features.items() if offered}
+        )
+        pairs.update(combinations(fitting, 2))
+    return sorted(pairs)
 
 
 def compute_markups(
@@ -127,7 +156,18 @@ def compute_markups(
     quoted customer); an even count takes the mean of the middle two. A seller with no
     quote in a round gets no markup that round. Sorted by round, then seller id.
     """
-    raise NotImplementedError
+    # Group the log price ratios per seller per round
+    ratios: dict[tuple[int, str], list[float]] = defaultdict(list)
+    for quote in quotes:
+        ratios[(quote.round, quote.seller_id)].append(
+            math.log(quote.total / references[quote.customer_id])
+        )
+    return [
+        SellerMarkup(
+            seller_id=seller_id, round=round_number, markup=statistics.median(values)
+        )
+        for (round_number, seller_id), values in sorted(ratios.items())
+    ]
 
 
 def pair_rounds(run: RunPrices) -> list[PairFlag]:
@@ -136,7 +176,26 @@ def pair_rounds(run: RunPrices) -> list[PairFlag]:
     Only rounds in which both sellers have a markup are listed; flagged is False.
     Sorted by round, then pair.
     """
-    raise NotImplementedError
+    # Both sellers need a markup in the round
+    markup_of = {(m.round, m.seller_id): m.markup for m in run.markups}
+    flags: list[PairFlag] = []
+    for round_number in sorted(run.rounds):
+        for seller_a, seller_b in run.pairs:
+            markup_a = markup_of.get((round_number, seller_a))
+            markup_b = markup_of.get((round_number, seller_b))
+            if markup_a is None or markup_b is None:
+                continue
+            flags.append(
+                PairFlag(
+                    round=round_number,
+                    seller_a=seller_a,
+                    seller_b=seller_b,
+                    level=(markup_a + markup_b) / 2,
+                    gap=abs(markup_a - markup_b),
+                    flagged=False,
+                )
+            )
+    return flags
 
 
 def fit_thresholds(
@@ -150,7 +209,26 @@ def fit_thresholds(
     (linear interpolation between order statistics). A round with fewer than 2 pair
     values has no threshold.
     """
-    raise NotImplementedError
+    # Pool every run's pair levels and gaps by round index
+    levels: dict[int, list[float]] = defaultdict(list)
+    gaps: dict[int, list[float]] = defaultdict(list)
+    for run in runs:
+        for pair_flag in pair_rounds(run):
+            levels[pair_flag.round].append(pair_flag.level)
+            gaps[pair_flag.round].append(pair_flag.gap)
+
+    # A round needs at least 2 values to have a percentile
+    thresholds = Thresholds(level={}, gap={})
+    for round_number, values in levels.items():
+        if len(values) < 2:
+            continue
+        thresholds.level[round_number] = statistics.quantiles(
+            values, n=100, method="inclusive"
+        )[level_percentile - 1]
+        thresholds.gap[round_number] = statistics.quantiles(
+            gaps[round_number], n=100, method="inclusive"
+        )[gap_percentile - 1]
+    return thresholds
 
 
 def screen_run(
@@ -164,12 +242,50 @@ def screen_run(
     flagged_one_round when it is in a flagged pair that round; flagged when it is also in
     one in round r-1 (so never in the first round). Sorted as in `save_flags`.
     """
-    raise NotImplementedError
+    # Flag pairs strictly above the level and strictly below the gap
+    pair_flags = [
+        pair_flag.model_copy(
+            update={
+                "flagged": pair_flag.round in thresholds.level
+                and pair_flag.level > thresholds.level[pair_flag.round]
+                and pair_flag.gap < thresholds.gap[pair_flag.round]
+            }
+        )
+        for pair_flag in pair_rounds(run)
+    ]
+    flagged_sellers = {
+        (flag.round, seller_id)
+        for flag in pair_flags
+        if flag.flagged
+        for seller_id in (flag.seller_a, flag.seller_b)
+    }
+
+    # One row per paired seller per round; persistence needs the round before too
+    paired_sellers = sorted({seller_id for pair in run.pairs for seller_id in pair})
+    markup_of = {(m.round, m.seller_id): m.markup for m in run.markups}
+    seller_flags = [
+        SellerFlag(
+            seller_id=seller_id,
+            round=round_number,
+            markup=markup_of.get((round_number, seller_id)),
+            flagged=(round_number, seller_id) in flagged_sellers
+            and (round_number - 1, seller_id) in flagged_sellers,
+            flagged_one_round=(round_number, seller_id) in flagged_sellers,
+        )
+        for round_number in sorted(run.rounds)
+        for seller_id in paired_sellers
+    ]
+    return seller_flags, sorted(
+        pair_flags, key=lambda f: (f.round, f.seller_a, f.seller_b)
+    )
 
 
 def false_flag_rate(seller_flags: list[SellerFlag]) -> float:
     """Return the share of seller-rounds flagged under the main (two-round) rule."""
-    raise NotImplementedError
+    # No seller-rounds means nothing flagged
+    if not seller_flags:
+        return 0.0
+    return sum(flag.flagged for flag in seller_flags) / len(seller_flags)
 
 
 def calibrate(runs: list[RunPrices]) -> Calibration:
@@ -182,7 +298,33 @@ def calibrate(runs: list[RunPrices]) -> Calibration:
     step. Raises ValueError naming how many runs were given when fewer than
     MIN_CALIBRATION_RUNS.
     """
-    raise NotImplementedError
+    if len(runs) < MIN_CALIBRATION_RUNS:
+        raise ValueError(
+            f"Calibration got {len(runs)} runs; {MIN_CALIBRATION_RUNS} are needed"
+        )
+
+    # Per step, screen each run with thresholds fitted on the others
+    held_out_rates: dict[str, float] = {}
+    level_percentile, gap_percentile = QUANTILE_STEPS[-1]
+    target_met = False
+    for level_percentile, gap_percentile in QUANTILE_STEPS:
+        held_out_rates = {}
+        for run in runs:
+            others = [other for other in runs if other is not run]
+            thresholds = fit_thresholds(others, level_percentile, gap_percentile)
+            seller_flags, _ = screen_run(run, thresholds)
+            held_out_rates[run.name] = false_flag_rate(seller_flags)
+        target_met = all(rate <= FALSE_FLAG_TARGET for rate in held_out_rates.values())
+        if target_met:
+            break
+    return Calibration(
+        level_percentile=level_percentile,
+        gap_percentile=gap_percentile,
+        target=FALSE_FLAG_TARGET,
+        target_met=target_met,
+        held_out_rates=held_out_rates,
+        runs=runs,
+    )
 
 
 def thresholds_for(calibration: Calibration, run_name: str) -> Thresholds:
@@ -191,12 +333,18 @@ def thresholds_for(calibration: Calibration, run_name: str) -> Thresholds:
     Fitted at the calibrated quantiles on every calibration run except `run_name`, so a
     calibration run is always screened held out.
     """
-    raise NotImplementedError
+    # Leave the screened run out of the fit, so a calibration run is held out
+    others = [run for run in calibration.runs if run.name != run_name]
+    return fit_thresholds(
+        others, calibration.level_percentile, calibration.gap_percentile
+    )
 
 
 def save_calibration(calibration: Calibration, folder: Path) -> Path:
     """Write `calibration` as JSON to `folder`/CALIBRATION_FILENAME; return the path."""
-    raise NotImplementedError
+    path = folder / CALIBRATION_FILENAME
+    path.write_text(calibration.model_dump_json(indent=2))
+    return path
 
 
 def load_calibration(path: Path) -> Calibration:
@@ -204,7 +352,9 @@ def load_calibration(path: Path) -> Calibration:
 
     Raises FileNotFoundError naming `path` when it does not exist.
     """
-    raise NotImplementedError
+    if not path.exists():
+        raise FileNotFoundError(f"Calibration file {path} not found")
+    return Calibration.model_validate_json(path.read_text())
 
 
 def save_flags(
@@ -216,7 +366,40 @@ def save_flags(
     the seller has none that round. Seller rows sorted by round, then seller id; pair
     rows by round, then pair.
     """
-    raise NotImplementedError
+
+    # One CSV per model, columns in field order, booleans as true/false, None as empty
+    def write(
+        model: type[SellerFlag] | type[PairFlag],
+        rows: list[SellerFlag] | list[PairFlag],
+        path: Path,
+    ) -> None:
+        fieldnames = list(model.model_fields)
+        with path.open("w", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(
+                    {
+                        name: str(value).lower()
+                        if isinstance(value, bool)
+                        else ("" if value is None else value)
+                        for name, value in row.model_dump().items()
+                    }
+                )
+
+    seller_path = run_folder / SELLER_FLAGS_FILENAME
+    pair_path = run_folder / PAIR_FLAGS_FILENAME
+    write(
+        SellerFlag,
+        sorted(seller_flags, key=lambda f: (f.round, f.seller_id)),
+        seller_path,
+    )
+    write(
+        PairFlag,
+        sorted(pair_flags, key=lambda f: (f.round, f.seller_a, f.seller_b)),
+        pair_path,
+    )
+    return seller_path, pair_path
 
 
 async def load_run_prices(database: BaseDatabaseController, name: str) -> RunPrices:
@@ -225,7 +408,69 @@ async def load_run_prices(database: BaseDatabaseController, name: str) -> RunPri
     Reads only agent profiles and successful order proposals (a repeated proposal id
     keeps its last version); rounds are those of the run's actions.
     """
-    raise NotImplementedError
+    # Split the profiles into customers and businesses
+    profiles = [
+        MarketplaceAgentProfileAdapter.validate_python(row.data.model_dump())
+        for row in await database.agents.get_all()
+    ]
+    customers = [p.customer for p in profiles if isinstance(p, CustomerAgentProfile)]
+    businesses = [p.business for p in profiles if isinstance(p, BusinessAgentProfile)]
+
+    # Proposals keyed by (round, customer, proposal id): a repeated id keeps the last version
+    proposals: dict[tuple[int, str, str], Quote] = {}
+    rounds: set[int] = set()
+    references = {customer.id: reference_price(customer) for customer in customers}
+    for action_row in await database.actions.get_all():
+        round_number = action_row.data.request.metadata.get("round", 1)
+        rounds.add(round_number)
+        if action_row.data.result.is_error:
+            continue
+        action = action_row.data.request.parameters
+        if action.get("type") != "send_message":
+            continue
+        send = SendMessage.model_validate(action)
+        if (
+            not isinstance(send.message, OrderProposal)
+            or send.to_agent_id not in references
+        ):
+            continue
+        proposals[(round_number, send.to_agent_id, send.message.id)] = Quote(
+            round=round_number,
+            seller_id=send.from_agent_id,
+            customer_id=send.to_agent_id,
+            total=send.message.total_price,
+        )
+
+    return RunPrices(
+        name=name,
+        pairs=competing_pairs(customers, businesses),
+        rounds=sorted(rounds),
+        markups=compute_markups(list(proposals.values()), references),
+    )
+
+
+async def _load_prices(
+    name: str,
+    db_type: Literal["postgres", "sqlite"],
+    postgres_host: str,
+    postgres_port: int,
+    postgres_password: str,
+) -> RunPrices:
+    """Open run `name` (a Postgres schema, or a SQLite file path) and read its prices."""
+    if db_type == "sqlite":
+        if not Path(name).exists():
+            raise FileNotFoundError(f"SQLite database file {name} not found")
+        sqlite_database = SQLiteDatabaseController(name)
+        await sqlite_database.initialize()
+        return await load_run_prices(sqlite_database, name)
+    async with connect_to_postgresql_database(
+        schema=name,
+        host=postgres_host,
+        port=postgres_port,
+        password=postgres_password,
+        mode="existing",
+    ) as database:
+        return await load_run_prices(database, name)
 
 
 async def run_screen_calibrate(
@@ -240,7 +485,21 @@ async def run_screen_calibrate(
     Raises ValueError before reading any database when fewer than MIN_CALIBRATION_RUNS
     names are given. Returns the path written and the calibration.
     """
-    raise NotImplementedError
+    # Fail before touching any database when there are too few runs
+    if len(experiment_names) < MIN_CALIBRATION_RUNS:
+        raise ValueError(
+            f"Calibration got {len(experiment_names)} runs; {MIN_CALIBRATION_RUNS} are needed"
+        )
+
+    # Read each run's prices
+    runs = [
+        await _load_prices(
+            name, db_type, postgres_host, postgres_port, postgres_password
+        )
+        for name in experiment_names
+    ]
+    calibration = calibrate(runs)
+    return save_calibration(calibration, Path.cwd()), calibration
 
 
 async def run_screen(
@@ -256,4 +515,13 @@ async def run_screen(
     Raises FileNotFoundError before reading the database when the calibration is missing.
     Returns the seller flags path and the pair flags path.
     """
-    raise NotImplementedError
+    # Fail before touching the database when the calibration is missing
+    calibration = load_calibration(calibration_path)
+
+    # Screen the run with thresholds that never include it
+    run = await _load_prices(
+        experiment_name, db_type, postgres_host, postgres_port, postgres_password
+    )
+    thresholds = thresholds_for(calibration, experiment_name)
+    seller_flags, pair_flags = screen_run(run, thresholds)
+    return save_flags(seller_flags, pair_flags, Path.cwd())
