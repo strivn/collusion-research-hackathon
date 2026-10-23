@@ -25,6 +25,7 @@ from .models import (
     CustomerActionResult,
     CustomerSendMessageResults,
     CustomerSummary,
+    RefusedPaymentLog,
 )
 from .prompts import PromptsHandler
 
@@ -298,7 +299,15 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
                 ):
                     total = stored_proposal.proposal.total_price
                     self.logger.warning(
-                        f"Refused payment for proposal {proposal_to_accept}: ${total:.2f} exceeds budget ${self._budget:.2f}"
+                        f"Refused payment for proposal {proposal_to_accept}: ${total:.2f} exceeds budget ${self._budget:.2f}",
+                        data=RefusedPaymentLog(
+                            customer_id=self.id,
+                            business_id=business_id,
+                            proposal_id=proposal_to_accept,
+                            total=total,
+                            budget=self._budget,
+                            round=self.round_number,
+                        ),
                     )
                     send_message_results.pay_message_results.append(
                         (

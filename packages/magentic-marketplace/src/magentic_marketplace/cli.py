@@ -14,6 +14,7 @@ from magentic_marketplace.experiments.extract_agent_llm_traces import (
     run_extract_traces,
 )
 from magentic_marketplace.experiments.list_experiments import list_experiments
+from magentic_marketplace.experiments.round_scores import run_score
 from magentic_marketplace.experiments.run_analytics import run_analytics
 from magentic_marketplace.experiments.run_audit import run_audit
 from magentic_marketplace.experiments.run_config import (
@@ -169,7 +170,16 @@ def run_analysis_command(args):
 
 def run_score_command(args):
     """Handle the score subcommand."""
-    raise NotImplementedError("score command")
+    customer_path, seller_path = asyncio.run(
+        run_score(
+            args.experiment_name,
+            args.postgres_host,
+            args.postgres_port,
+            args.postgres_password,
+        )
+    )
+    print(f"Wrote {customer_path}")
+    print(f"Wrote {seller_path}")
 
 
 def run_extract_traces_command(args):
