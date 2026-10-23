@@ -16,6 +16,7 @@ from ...shared.models import Business, BusinessAgentProfile
 from ..base import BaseSimpleMarketplaceAgent
 from ..proposal_storage import OrderProposalStorage
 from .models import BusinessSummary
+from .pricing import PriceListLog, set_round_prices
 from .responses import ResponseHandler
 
 
@@ -30,6 +31,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         polling_interval: float = 2,
         round_number: int = 1,
         messages_after_index: int | None = None,
+        seller_pricing: bool = False,
+        current_prices: dict[str, float] | None = None,
     ):
         """Initialize the business agent.
 
@@ -40,6 +43,10 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             polling_interval: Number of seconds to wait after fetching 0 messages.
             round_number: The round this agent serves; part of its proposal ids from round 2.
             messages_after_index: Ignore messages at or below this row index (earlier rounds).
+            seller_pricing: Quote this round's price list: menu prices in round 1, a price list set by a
+                pricing call from round 2. False quotes menu prices (stock).
+            current_prices: Last round's price per menu item, the starting point of this round's
+                pricing call. None means the menu prices.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -56,6 +63,10 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self.proposal_storage = OrderProposalStorage()
         self.confirmed_orders: list[str] = []
         self._polling_interval = polling_interval
+        self._seller_pricing = seller_pricing
+        self._current_prices = current_prices
+        # This round's price per menu item; None while pricing is off (stock)
+        self.round_prices: dict[str, float] | None = None
 
         # Initialize handler resources
         self._responses = ResponseHandler(
@@ -186,6 +197,29 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
 
     async def on_started(self):
         """Handle when the business agent starts."""
+        # Set this round's price list before serving any customer
+        if self._seller_pricing:
+            if self.round_number == 1:
+                # Round 1 is the seed round: menu prices, no pricing call
+                round_prices = dict(self.business.menu_features)
+                self.logger.info(
+                    "Prices for round 1",
+                    data=PriceListLog(
+                        seller_id=self.business.id, round=1, prices=round_prices
+                    ),
+                )
+            else:
+                round_prices = await set_round_prices(
+                    self.business,
+                    current_prices=self._current_prices
+                    or dict(self.business.menu_features),
+                    round_number=self.round_number,
+                    generate_struct_fn=self.generate_struct,
+                    logger=self.logger,
+                )
+            self.round_prices = round_prices
+            self._responses.round_prices = round_prices
+
         self.logger.info("Ready for customers")
 
     async def _handle_payment(self, customer_id: str, payment: Payment) -> TextMessage:

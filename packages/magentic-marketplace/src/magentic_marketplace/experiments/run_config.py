@@ -33,6 +33,7 @@ class RunConfig(BaseModel):
     customer_max_steps: int = 100
     budget: BudgetConfig | None = None
     rounds: int = 1
+    seller_pricing: bool = False
 
 
 def load_run_config(path: Path) -> RunConfig:

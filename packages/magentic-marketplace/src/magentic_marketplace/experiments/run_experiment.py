@@ -51,6 +51,7 @@ async def run_marketplace_experiment(
     export_filename: str | None = None,
     budget: BudgetConfig | None = None,
     rounds: int = 1,
+    seller_pricing: bool = False,
 ):
     """Run a marketplace experiment using YAML configuration files."""
     # Load businesses and customers from YAML files
@@ -113,6 +114,8 @@ async def run_marketplace_experiment(
 
         # Run every round with fresh agents; a round starts after the previous one is fully done
         messages_floor: int | None = None
+        # Each seller's price list from the previous round; None in round 1
+        last_prices: dict[str, dict[str, float] | None] = {}
         async with AgentLauncher(marketplace_launcher.server_url) as agent_launcher:
             for round_number in range(1, rounds + 1):
                 business_agents = [
@@ -121,6 +124,8 @@ async def run_marketplace_experiment(
                         marketplace_launcher.server_url,
                         round_number=round_number,
                         messages_after_index=messages_floor,
+                        seller_pricing=seller_pricing,
+                        current_prices=last_prices.get(business.id),
                     )
                     for business in businesses
                 ]
@@ -147,6 +152,13 @@ async def run_marketplace_experiment(
                 except KeyboardInterrupt:
                     logger.warning("Simulation interrupted by user")
                     break
+
+                # Carry each seller's prices into the next round; pricing off has none
+                if seller_pricing:
+                    last_prices = {
+                        agent.business.id: agent.round_prices
+                        for agent in business_agents
+                    }
 
                 # Only a following round needs the floor, so a one-round run stays stock
                 if round_number < rounds:

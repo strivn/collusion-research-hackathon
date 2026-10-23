@@ -49,3 +49,10 @@ Feature: Rounds
       Given a config.yml with 2 rounds
       When customer "customer_0001" pays a proposal in round 2
       Then the logged payment carries round 2
+
+  Rule: A round ends when every customer has finished; the next round's pricing starts after
+
+    Scenario: Pricing for round 2 waits for round 1 to finish
+      Given a config.yml with 2 rounds and seller pricing on
+      When the run finishes
+      Then no seller's round-2 pricing call starts before the last customer finishes round 1
