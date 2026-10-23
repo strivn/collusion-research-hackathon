@@ -60,7 +60,7 @@ Messages left this round: {messages_left}. A message to 3 restaurants uses 3 of 
 {memory_section}Messages this round:
 {message_lines}
 
-Remember: sending messages is optional and no need to be enforced.
+Remember: sending messages is optional. You can send none.
 
 Answer with a list of messages, each with the ids of the sellers it goes to and its text. Answer with an empty list to send nothing."""
 
