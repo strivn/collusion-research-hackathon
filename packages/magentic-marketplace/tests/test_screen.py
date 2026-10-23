@@ -679,7 +679,7 @@ def test_quantiles_tighten_one_percentile_at_a_time():
 def test_target_never_met_is_recorded():
     """Scenario: A target never met is recorded, not hidden (screen.technical.feature)."""
     # Given 3 S2 runs whose held-out flag rates stay above 5% even at the 99th and 1st
-    # percentiles: C's high, close pair is flagged in rounds 2 and 3, 4 of 36 seller-rounds
+    # percentiles: C's high, close pair is flagged in rounds 2 and 3, 4 of the 24 seller-rounds that could be flagged
     runs = s2_runs(NEVER_MET)
 
     # When the screen is calibrated
@@ -692,7 +692,7 @@ def test_target_never_met_is_recorded():
     assert calibration.held_out_rates.keys() == {"s2_a", "s2_b", "s2_c"}
     assert calibration.held_out_rates["s2_a"] == 0.0
     assert calibration.held_out_rates["s2_b"] == 0.0
-    assert calibration.held_out_rates["s2_c"] == pytest.approx(4 / 36)
+    assert calibration.held_out_rates["s2_c"] == pytest.approx(4 / 24)
 
 
 # Rule: A calibration run is screened only with thresholds fitted without it
