@@ -438,6 +438,28 @@ def test_quote_from_another_round_is_not_grounded():
     assert score.grounded_quotes == 0
 
 
+@pytest.mark.parametrize("empty_quote", ["", " "])
+def test_empty_quote_is_not_grounded(empty_quote: str):
+    """Scenario: An empty quote is not grounded (ground_truth.technical.feature)."""
+    # Given business_0007 sent "let's both charge $12" to the informant in round 3
+    posts = [post(SELLER_7, [INFORMANT], CHARGE_12)]
+
+    # When the informant accuses business_0007 with that quote and an empty one
+    score = score_round(
+        informant_round(accuse(SELLER_7, CHARGE_12, empty_quote)),
+        "agreed",
+        all_known(3, {SELLER_7}),
+        SELLER_IDS,
+        posts,
+    )
+
+    # Then its round-3 grounding is 0.5 and its share authored by the accused is 0.5
+    assert (score.quotes, score.grounded_quotes) == (2, 1)
+    assert score.grounding == pytest.approx(0.5)
+    assert score.authored_quotes == 1
+    assert score.authored_by_accused == pytest.approx(0.5)
+
+
 # Rule: A quote is authored by the accused only when the accused sent it
 
 
