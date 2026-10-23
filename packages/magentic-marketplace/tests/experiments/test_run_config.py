@@ -121,11 +121,12 @@ def test_save_writes_every_setting_defaults_included(tmp_path):
     assert RUN_CONFIG_FILENAME == "config.yml"
     assert written == run_folder / "config.yml"
     saved = yaml.safe_load(written.read_text())
-    assert saved == {
-        "data": "data/mexican_3_9",
-        "experiment_name": "cfg_test",
-        **STOCK_DEFAULTS,
-    }
+    # Every RunConfig setting is listed; later features add their own keys
+    assert set(saved) == set(RunConfig.model_fields)
+    assert saved["data"] == "data/mexican_3_9"
+    assert saved["experiment_name"] == "cfg_test"
+    for name, value in STOCK_DEFAULTS.items():
+        assert saved[name] == value
 
 
 def test_saved_config_loads_back_to_the_same_settings(tmp_path):
