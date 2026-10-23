@@ -23,7 +23,7 @@ from ..proposal_storage import OrderProposalStorage
 from .models import BusinessSummary, ChannelMessageLog
 from .pricing import PriceListLog, SellerMemory, set_round_prices
 from .responses import ResponseHandler
-from .talk import TalkPhase
+from .talk import TalkDecision, TalkPhase, format_talk_prompt
 
 
 class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
@@ -244,13 +244,36 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
 
     async def talk_turn(self, turn: int) -> list[str]:
         """Make this seller's talk call for `turn`, send what it decides, return the ids delivered to."""
-        raise NotImplementedError("talk_turn")
+        # Ask the seller what to send, given this round's messages so far
+        channel = await self.fetch_channel_messages()
+        prompt = format_talk_prompt(
+            self.business,
+            self._other_sellers,
+            channel.messages_left,
+            self.round_number,
+            self._memory,
+            channel.messages,
+        )
+        decision, _ = await self.generate_struct(prompt, TalkDecision)
+
+        # Send one message at a time because the allowance check is not locked
+        delivered: list[str] = []
+        for message in decision.messages:
+            result = await self.send_channel_message(
+                message.to_seller_ids, message.content, turn
+            )
+            if not result.is_error:
+                delivered.extend(message.to_seller_ids)
+        return delivered
 
     async def on_started(self):
         """Handle when the business agent starts."""
         # Talk with other sellers before pricing
+        channel_messages = None
         if self._talk_phase is not None:
-            raise NotImplementedError("talk phase in BusinessAgent.on_started")
+            await self._talk_phase.take_part(self.id, self.talk_turn)
+            if self._seller_pricing:
+                channel_messages = (await self.fetch_channel_messages()).messages
 
         # Set this round's price list before serving any customer
         if self._seller_pricing:
@@ -272,6 +295,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                     generate_struct_fn=self.generate_struct,
                     logger=self.logger,
                     memory=self._memory,
+                    channel_messages=channel_messages,
                 )
                 round_prices = result.prices
                 self.round_notes = result.notes

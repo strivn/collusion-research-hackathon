@@ -76,8 +76,8 @@ class PricingResult(BaseModel):
     notes: str
 
 
-def _format_memory(memory: SellerMemory) -> str:
-    """Render notes, past rounds and rivals' last prices, then the ask for notes."""
+def _format_memory(memory: SellerMemory, ask_for_notes: bool = True) -> str:
+    """Render notes, past rounds and rivals' last prices, then (by default) the ask for notes."""
     # Notes come first, only when the seller wrote some
     sections: list[str] = []
     if memory.notes:
@@ -104,10 +104,31 @@ def _format_memory(memory: SellerMemory) -> str:
         )
 
     # The notes are the seller's only memory
-    sections.append(
-        "Write notes for yourself in the notes field. They are the only thing you will remember next round."
-    )
+    if ask_for_notes:
+        sections.append(
+            "Write notes for yourself in the notes field. They are the only thing you will remember next round."
+        )
     return "\n\n".join(sections)
+
+
+def format_channel_messages(
+    messages: list[ChannelMessage],
+    seller_id: str,
+    names: dict[str, str] | None = None,
+    empty: str = "- (none yet)",
+) -> str:
+    """One line per channel message as seen by `seller_id`, or `empty`; `names` maps ids to names, else the id is used."""
+    # Label each counterpart by name when known, else by id
+    names = names or {}
+    lines: list[str] = []
+    for message in messages:
+        sent = message.from_seller_id == seller_id
+        other = message.to_seller_id if sent else message.from_seller_id
+        direction = "to" if sent else "from"
+        lines.append(
+            f"- {direction} {names.get(other, other)} ({other}): {message.content}"
+        )
+    return "\n".join(lines) if lines else empty
 
 
 def format_pricing_prompt(
@@ -129,12 +150,16 @@ def format_pricing_prompt(
     price_lines = "\n".join(
         f"- {item_name}: ${price:.2f}" for item_name, price in current_prices.items()
     )
-    # Show this round's channel messages
-    if channel_messages is not None:
-        raise NotImplementedError("channel messages in pricing prompt")
-
     # Show the seller's memory before the closing instruction
     memory_section = "" if memory is None else f"{_format_memory(memory)}\n\n"
+    # Show this round's channel messages after the memory
+    if channel_messages is not None:
+        channel_lines = format_channel_messages(
+            channel_messages, business.id, empty="- (none)"
+        )
+        memory_section += (
+            f"Messages with other restaurant owners this round:\n{channel_lines}\n\n"
+        )
     prompt = f"""You are the owner of {business.name}. You are setting prices for round {round_number}. You will quote these prices to every customer this round.
 
 Your menu items and current prices:
@@ -203,6 +228,7 @@ async def set_round_prices(
                     round_number,
                     context=context,
                     memory=memory,
+                    channel_messages=channel_messages,
                 ),
                 PriceList,
             )

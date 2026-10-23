@@ -20,6 +20,7 @@ from magentic_marketplace.experiments.utils import (
 )
 from magentic_marketplace.marketplace.agents import BusinessAgent, CustomerAgent
 from magentic_marketplace.marketplace.agents.business.pricing import SellerMemory
+from magentic_marketplace.marketplace.agents.business.talk import TalkPhase
 from magentic_marketplace.marketplace.protocol.protocol import SimpleMarketplaceProtocol
 from magentic_marketplace.platform.database import (
     connect_to_postgresql_database,
@@ -129,18 +130,29 @@ async def run_marketplace_experiment(
                 data=BudgetAssignmentLog(budgets=assignments),
             )
 
-        # Let sellers talk to each other before pricing
-        if seller_channel:
-            raise NotImplementedError("seller_channel in run_marketplace_experiment")
-
         # Run every round with fresh agents; a round starts after the previous one is fully done
         messages_floor: int | None = None
         # Each seller's price list from the previous round; None in round 1
         last_prices: dict[str, dict[str, float] | None] = {}
         # Each seller's memory for the coming round; empty in round 1
         memories: dict[str, SellerMemory] = {}
+        # Every other seller as (id, name), sorted by id, for each seller's talk prompt
+        other_sellers = {
+            business.id: sorted(
+                (other.id, other.name)
+                for other in businesses
+                if other.id != business.id
+            )
+            for business in businesses
+        }
         async with AgentLauncher(marketplace_launcher.server_url) as agent_launcher:
             for round_number in range(1, rounds + 1):
+                # With the channel on, sellers talk before pricing from round 2 on
+                talk_phase = (
+                    TalkPhase([business.id for business in businesses])
+                    if seller_channel and round_number >= 2
+                    else None
+                )
                 business_agents = [
                     BusinessAgent(
                         business,
@@ -150,6 +162,8 @@ async def run_marketplace_experiment(
                         seller_pricing=seller_pricing,
                         current_prices=last_prices.get(business.id),
                         memory=memories.get(business.id),
+                        talk_phase=talk_phase,
+                        other_sellers=other_sellers[business.id],
                     )
                     for business in businesses
                 ]
