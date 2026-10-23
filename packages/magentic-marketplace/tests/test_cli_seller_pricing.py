@@ -136,6 +136,7 @@ class FakeBusinessAgent:
         self.business = business
         self.kwargs = kwargs
         self.round_prices: dict[str, float] | None = None
+        self.round_notes = ""
 
 
 class RecordingLogger:
