@@ -303,11 +303,11 @@ def test_load_experiment_config_rejects_unknown_keys(tmp_path):
             "arms": {"S2": "s2.yml"},
             "repetitions": 1,
             "base_seed": 7,
-            "paralel": 3,
+            "paralell_cap": 3,
         },
     )
 
-    with pytest.raises(ValueError, match="paralel"):
+    with pytest.raises(ValueError, match="paralell_cap"):
         load_experiment_config(path)
 
 
