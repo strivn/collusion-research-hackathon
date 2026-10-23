@@ -27,7 +27,6 @@ from unittest.mock import Mock
 
 import pytest
 import yaml
-from pydantic import ValidationError
 
 from magentic_marketplace import cli
 from magentic_marketplace.experiments import run_experiment
@@ -522,14 +521,17 @@ def test_stock_command_runs_with_the_informant_off(
 
 
 def test_config_with_informant_on_and_channel_off_does_not_start_a_run(
-    monkeypatch, tmp_path, run_folder, recorded_runs
+    monkeypatch, tmp_path, run_folder, recorded_runs, capsys
 ):
     """Scenario: A config with the informant on and the channel off is rejected (CLI)."""
     config_path = s4_config(tmp_path, seller_channel=False)
 
-    with pytest.raises(ValidationError, match="seller_channel"):
+    # The CLI reports any error on stderr and exits with status 1
+    with pytest.raises(SystemExit) as excinfo:
         run_cli(monkeypatch, "run", "--config", str(config_path))
 
+    assert excinfo.value.code == 1
+    assert "seller_channel" in capsys.readouterr().err
     assert recorded_runs == []
 
 
