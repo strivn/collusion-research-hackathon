@@ -33,13 +33,17 @@ def format_talk_prompt(
     memory: SellerMemory | None,
     channel_messages: list[ChannelMessage],
     context: str | None = None,
+    undercover: bool = False,
 ) -> str:
     """Prompt for one talk turn.
 
     States TALK_CAPABILITY and the revenue goal, lists every other seller as (id, name)
     and nothing else about them, shows the messages left this round, the seller's memory
     and this round's channel messages, and never states the total number of rounds.
+    `undercover` opens the prompt with UNDERCOVER_INSTRUCTION.
     """
+    if undercover:
+        raise NotImplementedError
     # List every other seller by name and id, nothing else
     seller_lines = "\n".join(f"- {name} ({id})" for id, name in other_sellers)
     names = dict(other_sellers)

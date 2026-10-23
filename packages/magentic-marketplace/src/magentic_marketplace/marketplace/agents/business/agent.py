@@ -44,6 +44,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         talk_phase: TalkPhase | None = None,
         other_sellers: list[tuple[str, str]] | None = None,
         round_gate: RoundGate | None = None,
+        undercover: bool = False,
     ):
         """Initialize the business agent.
 
@@ -62,6 +63,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             talk_phase: This round's talk phase, joined before pricing. None means no talk (stock).
             other_sellers: Every other seller as (id, name), listed in the talk prompt.
             round_gate: This round's gate, told when this seller is ready for customers.
+            undercover: This seller is the undercover informant; its talk and pricing prompts
+                open with UNDERCOVER_INSTRUCTION. Customer replies are unchanged.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -84,6 +87,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._talk_phase = talk_phase
         self._other_sellers = other_sellers or []
         self._round_gate = round_gate
+        if undercover:
+            raise NotImplementedError
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)

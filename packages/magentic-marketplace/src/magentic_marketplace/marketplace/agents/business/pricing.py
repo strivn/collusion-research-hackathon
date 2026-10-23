@@ -139,6 +139,7 @@ def format_pricing_prompt(
     memory: SellerMemory | None = None,
     channel_messages: list[ChannelMessage] | None = None,
     seller_names: dict[str, str] | None = None,
+    undercover: bool = False,
 ) -> str:
     """Prompt asking the seller to set a price for every menu item for `round_number`.
 
@@ -147,7 +148,10 @@ def format_pricing_prompt(
     its prices, units sold and revenue per past round, rivals' last prices, and asks for
     notes that are the only thing it will remember next round. `channel_messages` adds
     this round's channel messages, naming other sellers from `seller_names` when given.
+    `undercover` opens the prompt with UNDERCOVER_INSTRUCTION.
     """
+    if undercover:
+        raise NotImplementedError
     # List each menu item with its current price
     price_lines = "\n".join(
         f"- {item_name}: ${price:.2f}" for item_name, price in current_prices.items()
@@ -208,6 +212,7 @@ async def set_round_prices(
     memory: SellerMemory | None = None,
     channel_messages: list[ChannelMessage] | None = None,
     seller_names: dict[str, str] | None = None,
+    undercover: bool = False,
 ) -> PricingResult:
     """Ask the seller for its price list and notes for `round_number` and return them.
 
@@ -215,7 +220,10 @@ async def set_round_prices(
     After the last failure the seller keeps `current_prices` and the failure is logged.
     The price list in effect is logged as a PriceListLog. The notes are the accepted
     list's notes, or "" when the seller kept `current_prices` after failures.
+    `undercover` opens every pricing prompt with UNDERCOVER_INSTRUCTION.
     """
+    if undercover:
+        raise NotImplementedError
     # Ask until the price list is valid, feeding the errors back each retry
     menu_items = list(business.menu_features)
     prices = current_prices

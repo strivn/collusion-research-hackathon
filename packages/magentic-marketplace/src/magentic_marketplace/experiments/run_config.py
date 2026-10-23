@@ -17,6 +17,14 @@ class BudgetConfig(BaseModel):
     seed: int
 
 
+class UndercoverConfig(BaseModel):
+    """Which seller is the undercover informant: one seller picked by `seed`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    seed: int
+
+
 class RunConfig(BaseModel):
     """Settings of one experiment run.
 
@@ -35,6 +43,7 @@ class RunConfig(BaseModel):
     rounds: int = 1
     seller_pricing: bool = False
     seller_channel: bool = False
+    undercover_informant: UndercoverConfig | None = None
 
 
 def load_run_config(path: Path) -> RunConfig:
