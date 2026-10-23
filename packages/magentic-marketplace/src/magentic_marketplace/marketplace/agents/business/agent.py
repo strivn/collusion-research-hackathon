@@ -64,6 +64,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             proposal_storage=self.proposal_storage,
             logger=self.logger,
             generate_struct_fn=self.generate_struct,
+            round_number=self.round_number,
         )
 
     @property

@@ -120,7 +120,11 @@ class ResponseHandler:
                     customer_id, 0
                 )
                 proposal_count = current_count + 1
-                deterministic_id = f"{self.agent_id}_{customer_id}_{proposal_count}"
+                # Round 1 keeps the stock id; later rounds add the round so ids never repeat
+                round_part = f"_r{self.round_number}" if self.round_number > 1 else ""
+                deterministic_id = (
+                    f"{self.agent_id}_{customer_id}{round_part}_{proposal_count}"
+                )
 
                 # Create new proposal with deterministic ID
                 proposal_with_id = OrderProposal(
