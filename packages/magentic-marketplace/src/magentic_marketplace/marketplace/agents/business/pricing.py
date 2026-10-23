@@ -23,6 +23,7 @@ class PriceList(BaseModel):
     """A seller's answer to the pricing prompt: one price per menu item."""
 
     prices: list[ItemPrice]
+    notes: str = ""
 
 
 class PriceListLog(BaseModel):
@@ -32,6 +33,46 @@ class PriceListLog(BaseModel):
     seller_id: str
     round: int
     prices: dict[str, float]
+    notes: str = ""
+
+
+class ItemSales(BaseModel):
+    """One menu item's price and sales in one past round."""
+
+    item: str
+    price: float
+    units_sold: int
+    revenue: float
+
+
+class RoundHistory(BaseModel):
+    """A seller's own prices and sales in one past round."""
+
+    round: int
+    items: list[ItemSales]
+
+
+class RivalPrice(BaseModel):
+    """A rival's last-round price for an item this seller also sells."""
+
+    seller_id: str
+    seller_name: str
+    price: float
+
+
+class SellerMemory(BaseModel):
+    """What a seller carries into a pricing step: its notes, its history and rivals' last prices."""
+
+    notes: str | None
+    history: list[RoundHistory]
+    rival_prices: dict[str, list[RivalPrice]]
+
+
+class PricingResult(BaseModel):
+    """The outcome of a pricing step: the round's prices and the seller's notes for next round."""
+
+    prices: dict[str, float]
+    notes: str
 
 
 def format_pricing_prompt(
@@ -39,12 +80,19 @@ def format_pricing_prompt(
     current_prices: dict[str, float],
     round_number: int,
     context: str | None = None,
+    memory: SellerMemory | None = None,
 ) -> str:
     """Prompt asking the seller to set a price for every menu item for `round_number`.
 
     Lists each item with its current price and states REVENUE_GOAL. `context` carries
-    the errors of a rejected price list on a retry.
+    the errors of a rejected price list on a retry. `memory` adds the seller's notes,
+    its prices, units sold and revenue per past round, rivals' last prices, and asks for
+    notes that are the only thing it will remember next round.
     """
+    # Show the seller's memory
+    if memory is not None:
+        raise NotImplementedError("memory in pricing prompt")
+
     # List each menu item with its current price
     price_lines = "\n".join(
         f"- {item_name}: ${price:.2f}" for item_name, price in current_prices.items()
@@ -92,13 +140,18 @@ async def set_round_prices(
     generate_struct_fn: Callable[[str, type], Awaitable[tuple[Any, Any]]],
     logger: MarketplaceLogger,
     retries: int = 3,
-) -> dict[str, float]:
-    """Ask the seller for its price list for `round_number` and return it.
+    memory: SellerMemory | None = None,
+) -> PricingResult:
+    """Ask the seller for its price list and notes for `round_number` and return them.
 
     An invalid list is retried up to `retries` times with the errors in the prompt.
     After the last failure the seller keeps `current_prices` and the failure is logged.
     The price list in effect is logged as a PriceListLog.
     """
+    # Pricing with memory is new behaviour
+    if memory is not None:
+        raise NotImplementedError("memory in set_round_prices")
+
     # Ask until the price list is valid, feeding the errors back each retry
     menu_items = list(business.menu_features)
     prices = current_prices
@@ -130,4 +183,4 @@ async def set_round_prices(
         f"Prices for round {round_number}",
         data=PriceListLog(seller_id=business.id, round=round_number, prices=prices),
     )
-    return prices
+    return PricingResult(prices=prices, notes="")
