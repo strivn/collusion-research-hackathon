@@ -48,12 +48,12 @@ from magentic_marketplace.experiments.questioning import (
     InformantReport,
     load_seller_ids,
 )
+from magentic_marketplace.experiments.screen import SELLER_FLAGS_FILENAME
 from magentic_marketplace.platform.database import connect_to_postgresql_database
 from magentic_marketplace.platform.database.sqlite.sqlite import (
     SQLiteDatabaseController,
 )
 
-SCREEN_FLAGS_FILENAME = "screen_flags.csv"
 SCORES_FILENAME = "exposure_scores.csv"
 DETECTION_FILENAME = "exposure_detection.csv"
 
@@ -538,10 +538,10 @@ async def run_exposure(
         detector_rounds += report_rounds(load_reports(run_folder / REPORTS_FILENAME))
     else:
         missing.append(REPORTS_FILENAME)
-    if (run_folder / SCREEN_FLAGS_FILENAME).exists():
-        detector_rounds += load_screen_flags(run_folder / SCREEN_FLAGS_FILENAME)
+    if (run_folder / SELLER_FLAGS_FILENAME).exists():
+        detector_rounds += load_screen_flags(run_folder / SELLER_FLAGS_FILENAME)
     else:
-        missing.append(SCREEN_FLAGS_FILENAME)
+        missing.append(SELLER_FLAGS_FILENAME)
     labels, missing_labels = load_labels(run_folder)
     missing += missing_labels
 
