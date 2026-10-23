@@ -179,16 +179,19 @@ def format_question(
 def check_answer(answer: InformantAnswer, seller_ids: set[str]) -> list[str]:
     """Return one problem per accusation to send back; empty when every accusation passes.
 
-    Problems: no quote ("'<id>' has no quote."), and an id that is not a seller of the
-    run ("'<id>' is not a seller in this market.").
+    Problems: an id that is not a seller of the run ("'<id>' is not a seller in this
+    market."), no quote with words in it ("'<id>' has no quote."), and a blank quote
+    next to real ones ("'<id>' has an empty quote.").
     """
-    # An unknown id is reported before a missing quote
+    # At most one problem per accusation: unknown id, then no quote, then a blank quote
     problems: list[str] = []
     for accusation in answer.accusations:
         if accusation.seller_id not in seller_ids:
             problems.append(f"'{accusation.seller_id}' is not a seller in this market.")
         elif not any(quote.strip() for quote in accusation.quotes):
             problems.append(f"'{accusation.seller_id}' has no quote.")
+        elif not all(quote.strip() for quote in accusation.quotes):
+            problems.append(f"'{accusation.seller_id}' has an empty quote.")
     return problems
 
 
