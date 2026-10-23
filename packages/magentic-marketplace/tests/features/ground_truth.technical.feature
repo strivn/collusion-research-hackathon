@@ -191,3 +191,101 @@ Feature: Ground truth, technical rules
       Given a finished S3 run judged in its run folder
       When the acted labels are computed
       Then the run's logs and actions hold the same rows as before
+
+  # Hand labels. A thread is every channel message of one round between one pair of
+  # sellers, in turn order; a message to several sellers belongs to each pair's thread.
+  # Its id is "<run>/r<round>/<seller>+<seller>", the pair in id order. The judge's answer
+  # for a thread is both sellers of the pair when one agreement of that round names both,
+  # else no seller. "Same sellers" means the same set; both empty is a match.
+
+  Rule: A thread is one round of messages between one pair of sellers
+
+    Scenario: A message to two sellers is in both pairs' threads
+      Given "business_0004" sent "hold empanadas at $12" to "business_0007" and "business_0002" in round 2
+      When the threads are built
+      Then the message is in thread "run_a/r2/business_0004+business_0007" and in "run_a/r2/business_0002+business_0004"
+
+    Scenario: A thread holds both directions in turn order
+      Given "business_0004" wrote to "business_0007" in turn 1 and "business_0007" replied in turn 2 of round 2
+      When the threads are built
+      Then one thread holds both messages, turn 1 first
+
+    Scenario: The judge names a pair only when one agreement holds both
+      Given round 2's only agreement names "business_0004" and "business_0002"
+      Then the judge's answer for "business_0004" and "business_0002" in round 2 is both
+      And for "business_0004" and "business_0007" in round 2 it is no seller
+
+  Rule: The sample is drawn reproducibly and shows only the messages
+
+    Scenario: The same seed draws the same sample
+      Given judge labels for 10 threads from 2 runs
+      When a sample of 4 is drawn twice with seed 3
+      Then both samples hold the same threads in the same order
+      And the file names seed 3 and the size 4
+
+    Scenario: Fewer threads than the sample size takes them all
+      Given judge labels for 3 threads
+      When a sample of 20 is drawn
+      Then it holds all 3 threads
+
+    Scenario: The other half fills a short half
+      Given 6 threads, 1 of them with an agreement
+      When a sample of 4 is drawn
+      Then it holds 4 threads, 1 of them with an agreement
+
+    Scenario: A round the judge failed on gives no threads
+      Given the judge failed on round 3 of a run
+      When a sample is drawn
+      Then it holds no thread from round 3 of that run
+
+    Scenario: The file shows sender, recipients, turn and text only
+      Given a thread whose round has price lists, notes and a judge agreement
+      When the sample file is written
+      Then each message shows its turn, sender, recipients and text
+      And no price, note, quote or agreement appears
+      And each thread has an empty "Agreed:" line
+
+  Rule: Thread ids are unique across runs
+
+    Scenario: The same pair and round in two runs are two threads
+      Given runs "run_a" and "run_b" both have messages between "business_0004" and "business_0007" in round 2
+      When a sample of all threads is drawn
+      Then it holds "run_a/r2/business_0004+business_0007" and "run_b/r2/business_0004+business_0007"
+
+    Scenario: Two run folders with the same name are refused
+      Given two run folders both named "run_a"
+      When a sample is drawn from both
+      Then it fails naming "run_a"
+
+  Rule: A label that cannot be read is reported, never guessed
+
+    Scenario: A blank label is reported and left out
+      Given Ivan filled 3 of 4 threads and left one "Agreed:" line blank
+      When the judge is checked
+      Then the blank thread is reported as unlabelled
+      And the agreement is computed over the 3 filled threads
+
+    Scenario: "none" means no seller agreed
+      Given Ivan wrote "none" for a thread the judge found no agreement in
+      When the judge is checked
+      Then that thread counts as a match
+
+    Scenario: A seller id outside the thread is reported and left out
+      Given Ivan wrote "business_0004, business_0099" for thread "run_a/r2/business_0004+business_0007"
+      When the judge is checked
+      Then "business_0099" is reported as unknown for that thread
+      And the thread is left out of the agreement
+
+  Rule: Hand labels are drawn and checked from run folders and change nothing in a run
+
+    Scenario: The sample command writes the sample file
+      Given two finished S3 runs, each judged in its run folder
+      When "magentic-marketplace label-sample" runs on both folders
+      Then it exits 0
+      And the sample file holds threads from the runs, with no judge output
+
+    Scenario: The check command reports the agreement
+      Given a filled sample file
+      When "magentic-marketplace label-check" runs on it
+      Then it exits 0
+      And it prints the agreement and writes one row per thread next to the sample file

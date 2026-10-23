@@ -18,6 +18,12 @@ from magentic_marketplace.experiments.export_experiment import export_experiment
 from magentic_marketplace.experiments.extract_agent_llm_traces import (
     run_extract_traces,
 )
+from magentic_marketplace.experiments.hand_labels import (
+    SAMPLE_SEED,
+    SAMPLE_SIZE,
+    run_label_check,
+    run_label_sample,
+)
 from magentic_marketplace.experiments.judge import run_judge
 from magentic_marketplace.experiments.list_experiments import list_experiments
 from magentic_marketplace.experiments.questioning import run_question
@@ -253,6 +259,47 @@ def run_acted_command(args):
             postgres_password=args.postgres_password,
         )
     )
+    print(f"Wrote {path}")
+
+
+def run_label_sample_command(args):
+    """Handle the label-sample subcommand."""
+    path = asyncio.run(
+        run_label_sample(
+            [Path(folder) for folder in args.run_folders],
+            Path(args.out),
+            size=args.size,
+            seed=args.seed,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    print(f"Wrote {path}")
+
+
+def run_label_check_command(args):
+    """Handle the label-check subcommand.
+
+    Prints "Agreement: <a:.2f> (<matches> of <labelled> threads)", or "Agreement: none (0
+    threads labelled)"; then "Unlabelled: <thread id>" per blank thread, "Unknown seller
+    ids in <thread id>: <id>, ..." per thread with unknown ids, and "Wrote <path>".
+    """
+    check, path = run_label_check(Path(args.sample_file))
+
+    # Headline number, then what was left out, then the file
+    if check.agreement is None:
+        print("Agreement: none (0 threads labelled)")
+    else:
+        matches = sum(row.match for row in check.threads)
+        print(
+            f"Agreement: {check.agreement:.2f} ({matches} of {len(check.threads)} threads)"
+        )
+    for thread_id in check.blank:
+        print(f"Unlabelled: {thread_id}")
+    for thread_id, ids in check.unknown.items():
+        print(f"Unknown seller ids in {thread_id}: {', '.join(ids)}")
     print(f"Wrote {path}")
 
 
@@ -607,6 +654,65 @@ def main():
         "--postgres-password",
         default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
         help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # label-sample subcommand
+    label_sample_parser = subparsers.add_parser(
+        "label-sample",
+        help="Draw a balanced sample of channel threads from judged run folders into one markdown file for hand labelling, without the judge's answers",
+    )
+    label_sample_parser.set_defaults(func=run_label_sample_command)
+    label_sample_parser.add_argument(
+        "run_folders",
+        nargs="+",
+        help="Judged run folders; each folder's name is its run name and Postgres schema",
+    )
+    label_sample_parser.add_argument(
+        "--out", required=True, help="Path of the sample file to write"
+    )
+    label_sample_parser.add_argument(
+        "--size",
+        type=int,
+        default=SAMPLE_SIZE,
+        help=f"Threads to draw (default: {SAMPLE_SIZE})",
+    )
+    label_sample_parser.add_argument(
+        "--seed",
+        type=int,
+        default=SAMPLE_SEED,
+        help=f"Seed for the draw, recorded in the file (default: {SAMPLE_SEED})",
+    )
+    label_sample_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read; sqlite reads <folder>/<folder name>.db (default: postgres)",
+    )
+    label_sample_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    label_sample_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    label_sample_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # label-check subcommand
+    label_check_parser = subparsers.add_parser(
+        "label-check",
+        help="Check the judge against a filled hand-label sample file; prints the agreement and writes one row per thread next to the file",
+    )
+    label_check_parser.set_defaults(func=run_label_check_command)
+    label_check_parser.add_argument(
+        "sample_file", help="Path of the filled sample file"
     )
 
     # analytics subcommand
