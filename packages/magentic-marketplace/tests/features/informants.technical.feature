@@ -58,6 +58,13 @@ Feature: Informants, technical rules
       When its report is checked
       Then "business_0007" is asked again, told that "business_0099" is not a seller in this market
 
+  Rule: Every quote has words in it
+
+    Scenario: A blank quote next to a real one is sent back
+      Given "business_0007" accuses "business_0004", quoting "deal, $12 it is" and "   "
+      When its report is checked
+      Then "business_0007" is asked again, told that "business_0004" has an empty quote
+
   Rule: After the last retry the report keeps only its valid accusations
 
     Scenario: An accusation still without a quote is dropped

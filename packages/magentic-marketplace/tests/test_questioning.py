@@ -704,6 +704,37 @@ async def test_failed_call_after_answer_is_not_the_view(run, database):
 # Rule: An accusation must name a seller of the run
 
 
+def test_check_answer_flags_blank_quote_next_to_real_one():
+    """Scenario: A blank quote next to a real one is sent back (check)."""
+    problems = check_answer(
+        answer(Accusation(seller_id=SELLER_4, quotes=[DEAL_QUOTE, "   "])),
+        set(SELLER_IDS),
+    )
+
+    assert problems == [f"'{SELLER_4}' has an empty quote."]
+
+
+async def test_blank_quote_next_to_real_one_is_sent_back():
+    """Scenario: A blank quote next to a real one is sent back."""
+    # Given "business_0007" accuses "business_0004", quoting "deal, $12 it is" and "   "
+    llm = in_turn(
+        answer(Accusation(seller_id=SELLER_4, quotes=[DEAL_QUOTE, "   "])),
+        answer(Accusation(seller_id=SELLER_4, quotes=[DEAL_QUOTE])),
+    )
+
+    # When its report is checked
+    report = await question_seller(
+        make_view(SELLER_7, 3), "pressured", set(SELLER_IDS), llm
+    )
+
+    # Then "business_0007" is asked again, told that "business_0004" has an empty quote
+    assert report.attempts == 2
+    assert llm.prompts[1].endswith(
+        f"{SENT_BACK_HEADER}\n- '{SELLER_4}' has an empty quote."
+    )
+    assert report.accusations == [Accusation(seller_id=SELLER_4, quotes=[DEAL_QUOTE])]
+
+
 def test_check_answer_flags_unknown_seller():
     """Scenario: An unknown seller id is sent back (check)."""
     problems = check_answer(
