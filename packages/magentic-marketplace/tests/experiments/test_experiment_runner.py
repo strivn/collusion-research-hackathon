@@ -321,13 +321,13 @@ def test_plan_two_arms_three_repetitions_six_runs():
 
     assert [(s.arm, s.repetition) for s in specs] == [
         ("S2", 1),
-        ("S2", 2),
-        ("S2", 3),
         ("S3", 1),
+        ("S2", 2),
         ("S3", 2),
+        ("S2", 3),
         ("S3", 3),
     ]
-    s3_rep2 = specs[4]
+    s3_rep2 = specs[3]
     assert s3_rep2.run_name == "S3_rep2"
     assert s3_rep2.schema_name == "exp1_S3_rep2"
     assert s3_rep2.folder == Path("research/results/exp1/S3_rep2")
