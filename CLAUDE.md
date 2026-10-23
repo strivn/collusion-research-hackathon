@@ -158,7 +158,7 @@ Logs: every action and LLM call is a JSONB row in the schema's `agents`, `action
 - The `logs` table stores one combined token count per LLM call (input + output), so
   spend can only be bounded, not computed, without patching the clients.
 - `analyze` and `extract-traces` write `analytics_results_<name>.json` and
-  `<name>-agent-llm-traces/` into the current directory. Run them from a scratch dir.
+  `<name>-agent-llm-traces/` into the current directory. Run them from the run folder.
 - `ui` defaults to port 5000, which macOS AirPlay Receiver usually holds; pass `--ui-port`.
 - Inspect a run directly: `docker compose exec -T postgres psql -U postgres -d marketplace`,
   then query `<schema>.actions` (message under `data->'request'->'parameters'->'message'`)
