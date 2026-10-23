@@ -6,6 +6,10 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from magentic_marketplace.platform.agent.base import BaseAgent, TProfile
+from magentic_marketplace.platform.shared.models import (
+    ActionExecutionRequest,
+    BaseAction,
+)
 
 from ..actions import (
     FetchMessages,
@@ -40,13 +44,48 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
     """Base class for simple marketplace agents with common functionality."""
 
     def __init__(
-        self, profile: TProfile, base_url: str, llm_config: BaseLLMConfig | None = None
+        self,
+        profile: TProfile,
+        base_url: str,
+        llm_config: BaseLLMConfig | None = None,
+        round_number: int = 1,
+        messages_after_index: int | None = None,
     ):
-        """Initialize the simple marketplace agent."""
+        """Initialize the simple marketplace agent.
+
+        Args:
+            profile: The agent's profile
+            base_url: The marketplace server URL
+            llm_config: LLM configuration for the agent
+            round_number: The round this agent acts in; tags its actions and LLM calls.
+            messages_after_index: Ignore messages at or below this row index (earlier rounds).
+                None fetches every message (stock).
+
+        """
         super().__init__(profile, base_url)
+        self.round_number = round_number
+        self.messages_after_index = messages_after_index
+
         self.last_fetch_index: int | None = None
         self.llm_config = llm_config or BaseLLMConfig()
         self._seen_message_indexes: set[int] = set()
+
+    async def execute_action(self, action: BaseAction):
+        """Execute an action through the marketplace, tagged with this agent's round.
+
+        Arguments:
+            action: The action to execute in the marketplace.
+
+        Returns:
+            The result of the action execution.
+
+        """
+        request = ActionExecutionRequest(
+            name=action.get_name(),
+            parameters=action.model_dump(mode="json"),
+            metadata={"round": self.round_number},
+        )
+        return await self.client.actions.execute_request(request)
 
     async def send_message(self, to_agent_id: str, message: Message):
         """Send a message to another agent.
@@ -90,7 +129,7 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
             Response containing the fetched messages
 
         """
-        action = FetchMessages()
+        action = FetchMessages(after_index=self.messages_after_index)
 
         result = await self.execute_action(action)
 
@@ -130,7 +169,10 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
         # Use llm_config if provided, otherwise use kwargs directly
         kwargs = {**self.llm_config.model_dump(), **kwargs}
         response, usage = await generate(
-            prompt, logger=self.logger, log_metadata={"agent_id": self.id}, **kwargs
+            prompt,
+            logger=self.logger,
+            log_metadata={"agent_id": self.id, "round": self.round_number},
+            **kwargs,
         )
 
         # Create metadata for compatibility
@@ -166,7 +208,7 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
             prompt,
             response_format=response_format,
             logger=self.logger,
-            log_metadata={"agent_id": self.id},
+            log_metadata={"agent_id": self.id, "round": self.round_number},
             **kwargs,
         )
 

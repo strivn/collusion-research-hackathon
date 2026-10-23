@@ -42,6 +42,8 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
         polling_interval: float = 2,
         max_steps: int | None = None,
         budget: float | None = None,
+        round_number: int = 1,
+        messages_after_index: int | None = None,
     ):
         """Initialize the customer agent.
 
@@ -54,10 +56,18 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
             polling_interval: Number of seconds to wait after receiving no messages.
             max_steps: Maximum number of steps to take before stopping.
             budget: Most the customer may pay for its whole order. None means no budget (stock).
+            round_number: The round this agent shops in.
+            messages_after_index: Ignore messages at or below this row index (earlier rounds).
 
         """
         profile = CustomerAgentProfile.from_customer(customer)
-        super().__init__(profile, base_url, llm_config)
+        super().__init__(
+            profile,
+            base_url,
+            llm_config,
+            round_number=round_number,
+            messages_after_index=messages_after_index,
+        )
 
         # Initialize customer agent state
         self.proposal_storage = OrderProposalStorage()

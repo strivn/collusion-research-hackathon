@@ -28,6 +28,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         base_url: str,
         llm_config: BaseLLMConfig | None = None,
         polling_interval: float = 2,
+        round_number: int = 1,
+        messages_after_index: int | None = None,
     ):
         """Initialize the business agent.
 
@@ -36,10 +38,18 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             base_url: The marketplace server URL
             llm_config: LLM configuration for the agent
             polling_interval: Number of seconds to wait after fetching 0 messages.
+            round_number: The round this agent serves; part of its proposal ids from round 2.
+            messages_after_index: Ignore messages at or below this row index (earlier rounds).
 
         """
         profile = BusinessAgentProfile.from_business(business)
-        super().__init__(profile, base_url, llm_config)
+        super().__init__(
+            profile,
+            base_url,
+            llm_config,
+            round_number=round_number,
+            messages_after_index=messages_after_index,
+        )
 
         # Initialize state from BaseBusinessAgent
         self.customer_histories: dict[str, list[str]] = defaultdict(list)
@@ -54,6 +64,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             proposal_storage=self.proposal_storage,
             logger=self.logger,
             generate_struct_fn=self.generate_struct,
+            round_number=self.round_number,
         )
 
     @property
