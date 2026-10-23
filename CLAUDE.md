@@ -155,8 +155,23 @@ Logs: every action and LLM call is a JSONB row in the schema's `agents`, `action
   `LLM_REASONING_EFFORT=minimal` sends `thinking: {type: "disabled"}`, which Haiku 5.5
   accepts at its default effort. Opus 5.5 and Sonnet 5.5 reject both disabled thinking
   and the forced `tool_choice` used for structured output, so they need a client patch.
-- The `logs` table stores one combined token count per LLM call (input + output), so
-  spend can only be bounded, not computed, without patching the clients.
+- Each `llm_call` log row holds `input_tokens` and `output_tokens` (since #13) next to
+  the combined `token_count`.
+- Anthropic rate limits are per organization and per model, counted per minute (token
+  bucket). Our org is on the Start tier: `claude-haiku-5-5` allows 1,000 requests,
+  2,000,000 input tokens and 400,000 output tokens per minute (measured 2026-10-23).
+  Cache reads do not count toward input tokens. On 2026-10-23 around 10:00 UTC our runs
+  went almost 100% over the Haiku 5.5 input-token limit and hit 429s. One `mexican_10_30`
+  run with talk peaked at 1.14M input tokens per minute, so two in parallel exceed the
+  limit. Before launching parallel runs, check the headroom and size the parallelism:
+  - Every API response carries `anthropic-ratelimit-{requests,input-tokens,output-tokens}-{limit,remaining,reset}`
+    headers (read them with `client.messages.with_raw_response.create(...)`).
+  - Tokens per minute of a run: `select date_trunc('minute', created_at) m,
+    sum((data->'data'->>'input_tokens')::int) from <schema>.logs where
+    data->'data'->>'type' = 'llm_call' group by 1 order by 2 desc limit 5;` Add up the
+    runs that overlap in time.
+  - The Console Usage page (platform.claude.com/usage) charts the hourly peak of input
+    tokens per minute against the limit.
 - `analyze` and `extract-traces` write `analytics_results_<name>.json` and
   `<name>-agent-llm-traces/` into the current directory. Run them from the run folder.
 - `ui` defaults to port 5000, which macOS AirPlay Receiver usually holds; pass `--ui-port`.
