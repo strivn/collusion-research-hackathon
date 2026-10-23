@@ -7,14 +7,23 @@ every agreement it joined in the latest round, up to this one, in which it joine
 Labels go to the run folder; nothing is written to the run's database.
 """
 
+import csv
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
 
 from magentic_marketplace.experiments.judge import (
+    AGREEMENTS_FILENAME,
     Agreement,
     RoundJudgement,
+    compute_labels,
+    load_price_history,
+)
+from magentic_marketplace.experiments.questioning import load_seller_ids
+from magentic_marketplace.platform.database import connect_to_postgresql_database
+from magentic_marketplace.platform.database.sqlite.sqlite import (
+    SQLiteDatabaseController,
 )
 
 TARGET_TOLERANCE = 0.02
@@ -29,12 +38,24 @@ class ActedLabel(BaseModel):
     acted: bool | None
 
 
+def _cents(price: float) -> int:
+    """Return `price` in whole cents, so comparisons carry no float error."""
+    return round(price * 100)
+
+
 def load_judgements(path: Path) -> list[RoundJudgement]:
     """Return the judgements saved by `judge` at `path`, one per line.
 
     Raises FileNotFoundError naming `path` when it does not exist.
     """
-    raise NotImplementedError
+    # The judge writes one JSON judgement per line
+    if not path.exists():
+        raise FileNotFoundError(f"Judge agreements file {path} not found")
+    return [
+        RoundJudgement.model_validate_json(line)
+        for line in path.read_text().splitlines()
+        if line.strip()
+    ]
 
 
 def follows(
@@ -55,7 +76,46 @@ def follows(
     Returns None when the agreement covers none of the seller's items, or when it sets a
     direction and `previous_prices` is None or lacks a covered item.
     """
-    raise NotImplementedError
+    # Only the seller's own items count
+    covered = [item for item in (agreement.items or prices) if item in prices]
+    if not covered:
+        return None
+
+    # Target: within the tolerance either way, compared in cents
+    if agreement.target_price is not None:
+        target = _cents(agreement.target_price)
+        if any(
+            abs(_cents(prices[item]) - target) > TARGET_TOLERANCE * target + 1e-9
+            for item in covered
+        ):
+            return False
+
+    # Band: inside the bounds, inclusive
+    if agreement.band_low is not None and any(
+        _cents(prices[item]) < _cents(agreement.band_low) for item in covered
+    ):
+        return False
+    if agreement.band_high is not None and any(
+        _cents(prices[item]) > _cents(agreement.band_high) for item in covered
+    ):
+        return False
+
+    # Direction needs the round before for every covered item
+    if agreement.direction is not None:
+        if previous_prices is None or any(
+            item not in previous_prices for item in covered
+        ):
+            return None
+        changes = [
+            _cents(prices[item]) - _cents(previous_prices[item]) for item in covered
+        ]
+        if agreement.direction == "raise" and agreement.items:
+            return all(change > 0 for change in changes)
+        if any(change < 0 for change in changes):
+            return False
+        if agreement.direction == "raise":
+            return any(change > 0 for change in changes)
+    return True
 
 
 def compute_acted(
@@ -74,7 +134,52 @@ def compute_acted(
     round-r price list, or when the judge failed on round r. Sellers not agreed in a round
     get no label. Sorted by round, then seller id.
     """
-    raise NotImplementedError
+    # Agreements with two or more known sellers, per seller per judged round
+    joined: dict[str, dict[int, list[Agreement]]] = {}
+    for judgement in judgements:
+        for agreement in judgement.agreements:
+            known = {s for s in agreement.seller_ids if s in seller_ids}
+            if len(known) < 2:
+                continue
+            for seller_id in known:
+                joined.setdefault(seller_id, {}).setdefault(judgement.round, []).append(
+                    agreement
+                )
+
+    agreed = {
+        (label.seller_id, label.round)
+        for label in compute_labels(judgements, seller_ids, rounds)
+        if label.agreed
+    }
+    errored_rounds = {j.round for j in judgements if j.error is not None}
+
+    labels: list[ActedLabel] = []
+    for round_number in sorted(rounds):
+        for seller_id in sorted(seller_ids):
+            if (seller_id, round_number) not in agreed:
+                continue
+            prices = price_history.get(seller_id, {}).get(round_number)
+            acted: bool | None = None
+            if prices is not None and round_number not in errored_rounds:
+                # Latest agreement: everything joined in its latest agreement round
+                latest_round = max(r for r in joined[seller_id] if r <= round_number)
+                previous = price_history[seller_id].get(round_number - 1)
+                # Agreements covering none of the seller's items are skipped
+                applicable = [
+                    follows(agreement, prices, previous)
+                    for agreement in joined[seller_id][latest_round]
+                    if any(item in prices for item in (agreement.items or prices))
+                ]
+                if False in applicable:
+                    acted = False
+                elif None in applicable or not applicable:
+                    acted = None
+                else:
+                    acted = True
+            labels.append(
+                ActedLabel(seller_id=seller_id, round=round_number, acted=acted)
+            )
+    return labels
 
 
 def save_acted(labels: list[ActedLabel], run_folder: Path) -> Path:
@@ -82,7 +187,15 @@ def save_acted(labels: list[ActedLabel], run_folder: Path) -> Path:
 
     CSV columns seller_id, round, acted; acted is "true", "false" or empty for unknown.
     """
-    raise NotImplementedError
+    # Unknown is an empty cell
+    path = run_folder / ACTED_FILENAME
+    with path.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(["seller_id", "round", "acted"])
+        for label in labels:
+            acted = "" if label.acted is None else str(label.acted).lower()
+            writer.writerow([label.seller_id, label.round, acted])
+    return path
 
 
 async def run_acted(
@@ -100,4 +213,33 @@ async def run_acted(
     FileNotFoundError before writing anything when the agreements file is missing. Returns
     the labels path.
     """
-    raise NotImplementedError
+    # Fail before touching the database when the judge has not run
+    run_folder = Path.cwd()
+    judgements = load_judgements(run_folder / AGREEMENTS_FILENAME)
+
+    # Read the run's sellers and price lists
+    if db_type == "sqlite":
+        if not Path(experiment_name).exists():
+            raise FileNotFoundError(f"SQLite database file {experiment_name} not found")
+        sqlite_database = SQLiteDatabaseController(experiment_name)
+        await sqlite_database.initialize()
+        seller_ids = await load_seller_ids(sqlite_database)
+        price_history = await load_price_history(sqlite_database)
+    else:
+        async with connect_to_postgresql_database(
+            schema=experiment_name,
+            host=postgres_host,
+            port=postgres_port,
+            password=postgres_password,
+            mode="existing",
+        ) as database:
+            seller_ids = await load_seller_ids(database)
+            price_history = await load_price_history(database)
+
+    # Rounds are those of the judgements and the price lists
+    rounds = sorted(
+        {j.round for j in judgements}
+        | {r for rounds_by_seller in price_history.values() for r in rounds_by_seller}
+    )
+    labels = compute_acted(judgements, price_history, seller_ids, rounds)
+    return save_acted(labels, run_folder)
