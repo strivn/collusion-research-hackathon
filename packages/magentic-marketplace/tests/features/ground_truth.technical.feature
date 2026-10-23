@@ -39,6 +39,12 @@ Feature: Ground truth, technical rules
       Then round 2 is saved with the error
       And a warning names round 2
 
+    Scenario: Unknown lasts until a later agreement settles it
+      Given the judge fails on round 3
+      And "business_0004" joins no agreement before round 3 or in round 4, and joins one in round 5
+      When the labels are computed
+      Then "business_0004" is not agreed in round 2, has no label in rounds 3 and 4, and is agreed in round 5
+
   Rule: An agreement labels only sellers of the run
 
     Scenario: An unknown seller id is left out of the labels

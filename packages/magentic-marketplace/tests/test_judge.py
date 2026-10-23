@@ -50,6 +50,7 @@ from magentic_marketplace.experiments.judge import (
     Agreement,
     ChannelPost,
     JudgeAnswer,
+    JudgedAgreement,
     JudgeRefusedError,
     RoundJudgement,
     build_judge_request,
@@ -586,6 +587,47 @@ async def test_refused_round_is_saved_as_error(tmp_path):
     assert answered.error is None
     assert [a.seller_ids for a in answered.agreements] == [[SELLER_4, SELLER_7]]
     assert answered.agreements[0].unknown_seller_ids == []
+
+
+def test_unknown_lasts_until_a_later_agreement_settles_it():
+    """Scenario: Unknown lasts until a later agreement settles it."""
+    # Given the judge fails on round 3
+    # And "business_0004" joins no agreement before round 3 or in round 4, and joins one
+    # in round 5; "business_0002" joins one in round 2
+    other_a, other_b = [
+        s for s in SELLER_IDS if s not in (SELLER_2, SELLER_4, SELLER_7)
+    ][:2]
+
+    def judged(*seller_ids: str) -> JudgedAgreement:
+        """Return a saved agreement of known `seller_ids`."""
+        return JudgedAgreement(
+            **agreement(*seller_ids).model_dump(), unknown_seller_ids=[]
+        )
+
+    judgements = [
+        RoundJudgement(round=1, called=False, agreements=[]),
+        RoundJudgement(round=2, called=True, agreements=[judged(SELLER_2, SELLER_7)]),
+        RoundJudgement(
+            round=3, called=True, agreements=[], error="the judge refused round 3"
+        ),
+        RoundJudgement(round=4, called=True, agreements=[judged(other_a, other_b)]),
+        RoundJudgement(round=5, called=True, agreements=[judged(SELLER_4, SELLER_7)]),
+    ]
+
+    # When the labels are computed
+    labels = compute_labels(judgements, set(SELLER_IDS), [1, 2, 3, 4, 5])
+
+    # Then "business_0004" is not agreed in round 2, has no label in rounds 3 and 4,
+    # and is agreed in round 5
+    assert [label_of(labels, SELLER_4, r) for r in (1, 2, 3, 4, 5)] == [
+        False,
+        False,
+        None,
+        None,
+        True,
+    ]
+    # A seller agreed before the failed round stays agreed through it and after
+    assert [label_of(labels, SELLER_2, r) for r in (2, 3, 4, 5)] == [True] * 4
 
 
 async def test_api_error_is_saved_and_logged(caplog):
