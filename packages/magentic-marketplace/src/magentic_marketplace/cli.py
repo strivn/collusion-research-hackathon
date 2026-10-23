@@ -21,6 +21,7 @@ from magentic_marketplace.experiments.extract_agent_llm_traces import (
 from magentic_marketplace.experiments.hand_labels import (
     SAMPLE_SEED,
     SAMPLE_SIZE,
+    run_label_check,
     run_label_sample,
 )
 from magentic_marketplace.experiments.judge import run_judge
@@ -285,7 +286,21 @@ def run_label_check_command(args):
     threads labelled)"; then "Unlabelled: <thread id>" per blank thread, "Unknown seller
     ids in <thread id>: <id>, ..." per thread with unknown ids, and "Wrote <path>".
     """
-    raise NotImplementedError
+    check, path = run_label_check(Path(args.sample_file))
+
+    # Headline number, then what was left out, then the file
+    if check.agreement is None:
+        print("Agreement: none (0 threads labelled)")
+    else:
+        matches = sum(row.match for row in check.threads)
+        print(
+            f"Agreement: {check.agreement:.2f} ({matches} of {len(check.threads)} threads)"
+        )
+    for thread_id in check.blank:
+        print(f"Unlabelled: {thread_id}")
+    for thread_id, ids in check.unknown.items():
+        print(f"Unknown seller ids in {thread_id}: {', '.join(ids)}")
+    print(f"Wrote {path}")
 
 
 def run_extract_traces_command(args):
