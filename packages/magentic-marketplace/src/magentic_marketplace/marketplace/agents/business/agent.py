@@ -28,6 +28,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         base_url: str,
         llm_config: BaseLLMConfig | None = None,
         polling_interval: float = 2,
+        seller_pricing: bool = False,
     ):
         """Initialize the business agent.
 
@@ -36,6 +37,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             base_url: The marketplace server URL
             llm_config: LLM configuration for the agent
             polling_interval: Number of seconds to wait after fetching 0 messages.
+            seller_pricing: Set a price list at the start of each round and quote only those prices. False quotes menu prices (stock).
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -46,6 +48,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self.proposal_storage = OrderProposalStorage()
         self.confirmed_orders: list[str] = []
         self._polling_interval = polling_interval
+        self._seller_pricing = seller_pricing
+        self.current_round = 1
 
         # Initialize handler resources
         self._responses = ResponseHandler(
@@ -175,6 +179,10 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
 
     async def on_started(self):
         """Handle when the business agent starts."""
+        # Set this round's price list before serving any customer
+        if self._seller_pricing:
+            raise NotImplementedError("pricing step in BusinessAgent.on_started")
+
         self.logger.info("Ready for customers")
 
     async def _handle_payment(self, customer_id: str, payment: Payment) -> TextMessage:

@@ -22,6 +22,7 @@ class ResponseHandler:
         proposal_storage: OrderProposalStorage,
         logger: MarketplaceLogger,
         generate_struct_fn: Callable[[str, type], Awaitable[tuple[Any, Any]]],
+        round_prices: dict[str, float] | None = None,
     ):
         """Initialize the response handler.
 
@@ -31,6 +32,7 @@ class ResponseHandler:
             proposal_storage: Proposal storage instance
             logger: Logger instance
             generate_struct_fn: Function to generate structured responses with LLM
+            round_prices: This round's price per menu item. None quotes menu prices (stock).
 
         """
         self.business = business
@@ -38,6 +40,7 @@ class ResponseHandler:
         self.proposal_storage = proposal_storage
         self.logger = logger
         self.generate_struct_fn = generate_struct_fn
+        self.round_prices = round_prices
         self.prompts = PromptsHandler(business, logger)
 
     async def generate_response_to_inquiry(
@@ -64,7 +67,10 @@ class ResponseHandler:
 
         # Get prompt from prompts handler
         prompt = self.prompts.format_response_prompt(
-            conversation_history, customer_id, context=context
+            conversation_history,
+            customer_id,
+            context=context,
+            round_prices=self.round_prices,
         )
 
         action, _ = await self.generate_struct_fn(prompt, BusinessAction)
@@ -100,6 +106,12 @@ class ResponseHandler:
                         validation_errors.append(
                             f"'{order_item.item_name}' does not match any menu items."
                         )
+
+                # Every unit price must be this round's price
+                if self.round_prices is not None:
+                    raise NotImplementedError(
+                        "round price check in proposal validation"
+                    )
 
                 if abs(total_price - proposal.total_price) >= 0.01:
                     validation_errors.append(

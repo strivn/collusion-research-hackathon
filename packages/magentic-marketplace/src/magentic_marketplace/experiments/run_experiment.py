@@ -38,6 +38,7 @@ async def run_marketplace_experiment(
     export_dir: str | None = None,
     export_filename: str | None = None,
     budget: BudgetConfig | None = None,
+    seller_pricing: bool = False,
 ):
     """Run a marketplace experiment using YAML configuration files."""
     # Load businesses and customers from YAML files
@@ -97,6 +98,10 @@ async def run_marketplace_experiment(
         logger.info(
             f"Marketplace experiment started:\nbusinesses={len(businesses)}\ncustomers={len(customers)}\ndata_dir={data_dir}\nexperiment_name:{experiment_name}",
         )
+
+        # Let sellers set their own prices
+        if seller_pricing:
+            raise NotImplementedError("seller_pricing in run_marketplace_experiment")
 
         # Create agents from loaded profiles
         business_agents = [
