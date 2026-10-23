@@ -36,6 +36,7 @@ from magentic_marketplace.experiments.run_config import (
     save_run_config,
 )
 from magentic_marketplace.experiments.run_experiment import run_marketplace_experiment
+from magentic_marketplace.experiments.screen import run_screen, run_screen_calibrate
 from magentic_marketplace.experiments.utils import setup_logging
 from magentic_marketplace.ui import run_ui_server
 
@@ -301,6 +302,49 @@ def run_label_check_command(args):
     for thread_id, ids in check.unknown.items():
         print(f"Unknown seller ids in {thread_id}: {', '.join(ids)}")
     print(f"Wrote {path}")
+
+
+def run_screen_calibrate_command(args):
+    """Handle the screen-calibrate subcommand."""
+    path, calibration = asyncio.run(
+        run_screen_calibrate(
+            args.experiment_names,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    # Show each held-out rate, and warn when no step met the target
+    rates = ", ".join(
+        f"{name} {rate:.1%}" for name, rate in calibration.held_out_rates.items()
+    )
+    print(
+        f"Quantiles: level percentile {calibration.level_percentile}, "
+        f"gap percentile {calibration.gap_percentile}; held-out flag rates: {rates}"
+    )
+    if not calibration.target_met:
+        print(
+            f"WARNING: held-out flag rate above {calibration.target:.0%} "
+            f"even at the tightest quantiles: {rates}"
+        )
+    print(f"Wrote {path}")
+
+
+def run_screen_command(args):
+    """Handle the screen subcommand."""
+    seller_path, pair_path = asyncio.run(
+        run_screen(
+            args.experiment_name,
+            Path(args.calibration),
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    print(f"Wrote {seller_path}")
+    print(f"Wrote {pair_path}")
 
 
 def run_extract_traces_command(args):
@@ -713,6 +757,77 @@ def main():
     label_check_parser.set_defaults(func=run_label_check_command)
     label_check_parser.add_argument(
         "sample_file", help="Path of the filled sample file"
+    )
+
+    # screen-calibrate subcommand
+    screen_calibrate_parser = subparsers.add_parser(
+        "screen-calibrate",
+        help="Calibrate the price screen by leave-one-out on S2 runs (pricing on, channel off); writes the calibration to the current directory",
+    )
+    screen_calibrate_parser.set_defaults(func=run_screen_calibrate_command)
+    screen_calibrate_parser.add_argument(
+        "experiment_names",
+        nargs="+",
+        help="S2 runs: Postgres schema names, or SQLite file paths (at least 3)",
+    )
+    screen_calibrate_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    screen_calibrate_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    screen_calibrate_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    screen_calibrate_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # screen subcommand
+    screen_parser = subparsers.add_parser(
+        "screen",
+        help="Flag sellers of a run from prices alone with a screen calibration; writes seller flags and pair flags to the current directory",
+    )
+    screen_parser.set_defaults(func=run_screen_command)
+    screen_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    screen_parser.add_argument(
+        "--calibration",
+        required=True,
+        help="Path to the screen calibration written by screen-calibrate",
+    )
+    screen_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    screen_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    screen_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    screen_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
     )
 
     # analytics subcommand

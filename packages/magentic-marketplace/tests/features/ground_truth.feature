@@ -77,3 +77,32 @@ Feature: Ground truth, price screen and scoring
       Given Ivan labelled 4 threads and the judge names the same sellers on 3 of them
       When the judge is checked
       Then the agreement is 0.75
+
+  Rule: The screen flags sellers from prices alone, comparing competing pairs with runs without a channel
+
+    Scenario: Competing pairs
+      Given customer "customer_0001" can buy its order only from "business_0001" or "business_0002"
+      When the competing pairs are listed
+      Then "business_0001" and "business_0002" form a pair
+
+    Scenario: Markup of a seller in a round
+      Given "business_0004" quoted $15.00 and $16.00 in round 3 against reference prices $13.48 and $14.00
+      Then its round-3 markup is the median of log(15.00 / 13.48) and log(16.00 / 14.00)
+
+    Scenario: A pair is flagged when both prices are high and close
+      Given a pair whose mean markup in round 3 is above the S2 high threshold
+      And whose markup gap is below the S2 low threshold
+      Then the pair is flagged in round 3
+
+    Scenario: A seller is flagged after two flagged rounds in a row
+      Given "business_0004" is in a flagged pair in rounds 2 and 3, and in none in round 1
+      Then it is flagged in round 3, and not in round 2
+
+    Scenario: The screen ignores messages
+      Given two runs with the same prices and different channel messages
+      Then the screen flags the same sellers in both
+
+    Scenario: Few false flags on held-out no-channel runs
+      Given 3 S2 runs
+      When thresholds are set on any 2 and applied to the third
+      Then at most 5% of the third run's seller-rounds are flagged
