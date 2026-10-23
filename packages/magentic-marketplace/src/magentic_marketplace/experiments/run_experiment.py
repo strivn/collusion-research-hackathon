@@ -99,13 +99,13 @@ async def run_marketplace_experiment(
             f"Marketplace experiment started:\nbusinesses={len(businesses)}\ncustomers={len(customers)}\ndata_dir={data_dir}\nexperiment_name:{experiment_name}",
         )
 
-        # Let sellers set their own prices
-        if seller_pricing:
-            raise NotImplementedError("seller_pricing in run_marketplace_experiment")
-
         # Create agents from loaded profiles
         business_agents = [
-            BusinessAgent(business, marketplace_launcher.server_url)
+            BusinessAgent(
+                business,
+                marketplace_launcher.server_url,
+                seller_pricing=seller_pricing,
+            )
             for business in businesses
         ]
 

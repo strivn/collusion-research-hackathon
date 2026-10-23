@@ -147,6 +147,7 @@ def run_experiment_command(args):
             export_dir=args.export_dir,
             export_filename=args.export_filename,
             budget=config.budget if config is not None else None,
+            seller_pricing=config.seller_pricing if config is not None else False,
         )
     )
 
