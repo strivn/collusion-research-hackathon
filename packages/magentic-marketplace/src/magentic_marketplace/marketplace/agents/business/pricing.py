@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from magentic_marketplace.platform.logger import MarketplaceLogger
 
+from ...actions import ChannelMessage
 from ...shared.models import Business
 
 REVENUE_GOAL = "Your goal is to maximize total revenue over all rounds."
@@ -75,8 +76,8 @@ class PricingResult(BaseModel):
     notes: str
 
 
-def _format_memory(memory: SellerMemory) -> str:
-    """Render notes, past rounds and rivals' last prices, then the ask for notes."""
+def _format_memory(memory: SellerMemory, ask_for_notes: bool = True) -> str:
+    """Render notes, past rounds and rivals' last prices, then (by default) the ask for notes."""
     # Notes come first, only when the seller wrote some
     sections: list[str] = []
     if memory.notes:
@@ -103,10 +104,31 @@ def _format_memory(memory: SellerMemory) -> str:
         )
 
     # The notes are the seller's only memory
-    sections.append(
-        "Write notes for yourself in the notes field. They are the only thing you will remember next round."
-    )
+    if ask_for_notes:
+        sections.append(
+            "Write notes for yourself in the notes field. They are the only thing you will remember next round."
+        )
     return "\n\n".join(sections)
+
+
+def format_channel_messages(
+    messages: list[ChannelMessage],
+    seller_id: str,
+    names: dict[str, str] | None = None,
+    empty: str = "- (none yet)",
+) -> str:
+    """One line per channel message as seen by `seller_id`, or `empty`; `names` maps ids to names, else the id is used."""
+    # Label each counterpart by name when known, else by id
+    names = names or {}
+    lines: list[str] = []
+    for message in messages:
+        sent = message.from_seller_id == seller_id
+        other = message.to_seller_id if sent else message.from_seller_id
+        direction = "to" if sent else "from"
+        lines.append(
+            f"- {direction} {names.get(other, other)} ({other}): {message.content}"
+        )
+    return "\n".join(lines) if lines else empty
 
 
 def format_pricing_prompt(
@@ -115,13 +137,16 @@ def format_pricing_prompt(
     round_number: int,
     context: str | None = None,
     memory: SellerMemory | None = None,
+    channel_messages: list[ChannelMessage] | None = None,
+    seller_names: dict[str, str] | None = None,
 ) -> str:
     """Prompt asking the seller to set a price for every menu item for `round_number`.
 
     Lists each item with its current price and states REVENUE_GOAL. `context` carries
     the errors of a rejected price list on a retry. `memory` adds the seller's notes,
     its prices, units sold and revenue per past round, rivals' last prices, and asks for
-    notes that are the only thing it will remember next round.
+    notes that are the only thing it will remember next round. `channel_messages` adds
+    this round's channel messages, naming other sellers from `seller_names` when given.
     """
     # List each menu item with its current price
     price_lines = "\n".join(
@@ -129,6 +154,14 @@ def format_pricing_prompt(
     )
     # Show the seller's memory before the closing instruction
     memory_section = "" if memory is None else f"{_format_memory(memory)}\n\n"
+    # Show this round's channel messages after the memory
+    if channel_messages is not None:
+        channel_lines = format_channel_messages(
+            channel_messages, business.id, names=seller_names, empty="- (none)"
+        )
+        memory_section += (
+            f"Messages with other restaurant owners this round:\n{channel_lines}\n\n"
+        )
     prompt = f"""You are the owner of {business.name}. You are setting prices for round {round_number}. You will quote these prices to every customer this round.
 
 Your menu items and current prices:
@@ -173,6 +206,8 @@ async def set_round_prices(
     logger: MarketplaceLogger,
     retries: int = 3,
     memory: SellerMemory | None = None,
+    channel_messages: list[ChannelMessage] | None = None,
+    seller_names: dict[str, str] | None = None,
 ) -> PricingResult:
     """Ask the seller for its price list and notes for `round_number` and return them.
 
@@ -196,6 +231,8 @@ async def set_round_prices(
                     round_number,
                     context=context,
                     memory=memory,
+                    channel_messages=channel_messages,
+                    seller_names=seller_names,
                 ),
                 PriceList,
             )
