@@ -55,7 +55,7 @@ def format_talk_prompt(
 Other restaurant owners:
 {seller_lines}
 
-Messages left this round: {messages_left}
+Messages left this round: {messages_left}. Each seller a message goes to uses one, and a message to more sellers than you have left is refused.
 
 {memory_section}Messages this round:
 {message_lines}
