@@ -829,7 +829,7 @@ def test_load_screen_flags_one_pair_of_rounds_per_round(tmp_path):
     ]
     by_key = {(r.detector, r.round): r for r in rounds}
     assert by_key[("screen", 2)].accusations == []
-    assert sorted(by_key[("screen", 3)].reach or []) == [SELLER_13, SELLER_4]
+    assert sorted(by_key[("screen", 3)].reach or []) == [SELLER_4, SELLER_13]
     assert [a.seller_id for a in by_key[("screen_one_round", 2)].accusations] == [
         SELLER_7
     ]
