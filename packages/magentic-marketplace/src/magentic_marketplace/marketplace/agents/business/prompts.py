@@ -3,6 +3,7 @@
 from magentic_marketplace.platform.logger import MarketplaceLogger
 
 from ...shared.models import Business
+from .pricing import REVENUE_GOAL
 
 
 class PromptsHandler:
@@ -28,6 +29,7 @@ class PromptsHandler:
         conversation_history: list[str],
         customer_id: str,
         context: str | None = None,
+        round_prices: dict[str, float] | None = None,
     ) -> str:
         """Format the prompt for generating responses to customer inquiries.
 
@@ -35,6 +37,8 @@ class PromptsHandler:
             conversation_history: convo history as string
             customer_id: the customer id
             context: extra context with error or instructions
+            round_prices: this round's price per menu item, shown instead of menu prices
+                with REVENUE_GOAL. None gives the stock prompt.
 
         Returns:
             Formatted prompt for LLM
@@ -55,9 +59,12 @@ class PromptsHandler:
             else "  - (none)"
         )
 
-        # Format menu items for the prompt
+        # Format menu items for the prompt, at round prices when pricing is on
+        menu_prices = (
+            self.business.menu_features if round_prices is None else round_prices
+        )
         menu_lines: list[str] = []
-        for item_name, price in self.business.menu_features.items():
+        for item_name, price in menu_prices.items():
             item_id = len(menu_lines) + 1
             menu_lines.append(f"  - Item-{item_id}: {item_name} - ${price:.2f}")
 
@@ -85,6 +92,14 @@ class PromptsHandler:
         if context is None:
             context = "Customer is making an inquiry. Use text action to respond, or create an order_proposal if they want to purchase something specific."
 
+        # Stock price rule, or the round-price rule with the revenue goal
+        price_rule = (
+            "ONLY tell potential customers what you have on the menu with CORRECT PRICES."
+            if round_prices is None
+            else "ONLY tell potential customers what you have on the menu, at the prices listed above."
+            f"\n{REVENUE_GOAL}"
+        )
+
         # Get current date and time
         prompt = f"""You are a business owner responding to a customer inquiry. Be helpful, professional, and try to make a sale.
 
@@ -94,7 +109,7 @@ Your business:
 {features_block}
 - Menu items and prices:
 {menu_block}
-ONLY tell potential customers what you have on the menu with CORRECT PRICES.
+{price_rule}
 
 Conversation so far:
 {earlier_conversation_history}
