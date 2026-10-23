@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from pydantic import BaseModel
+import yaml
+from pydantic import BaseModel, ConfigDict
 
 RUN_CONFIG_FILENAME = "config.yml"
 
@@ -13,6 +14,8 @@ class RunConfig(BaseModel):
     Each optional field defaults to the stock `magentic-marketplace run` default.
     A setting the model does not declare is rejected.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     data: str
     experiment_name: str
@@ -26,7 +29,8 @@ def load_run_config(path: Path) -> RunConfig:
 
     Raises an error naming any setting the config does not declare.
     """
-    raise NotImplementedError("load_run_config")
+    # Pydantic names every unknown or missing setting in its error
+    return RunConfig.model_validate(yaml.safe_load(path.read_text()))
 
 
 def save_run_config(config: RunConfig, run_folder: Path) -> Path:
@@ -34,4 +38,7 @@ def save_run_config(config: RunConfig, run_folder: Path) -> Path:
 
     Returns the path written.
     """
-    raise NotImplementedError("save_run_config")
+    # Dump in field order so the file reads like the model
+    path = run_folder / RUN_CONFIG_FILENAME
+    path.write_text(yaml.safe_dump(config.model_dump(), sort_keys=False))
+    return path
