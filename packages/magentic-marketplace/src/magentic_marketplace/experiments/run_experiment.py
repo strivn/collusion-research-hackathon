@@ -112,8 +112,6 @@ async def run_marketplace_experiment(
         )
 
         # Run every round with fresh agents; a round starts after the previous one is fully done
-        assert marketplace_launcher.server is not None
-        database = marketplace_launcher.server.state.database_controller
         messages_floor: int | None = None
         async with AgentLauncher(marketplace_launcher.server_url) as agent_launcher:
             for round_number in range(1, rounds + 1):
@@ -150,7 +148,12 @@ async def run_marketplace_experiment(
                     logger.warning("Simulation interrupted by user")
                     break
 
-                messages_floor = await _last_action_index(database)
+                # Only a following round needs the floor, so a one-round run stays stock
+                if round_number < rounds:
+                    assert marketplace_launcher.server is not None
+                    messages_floor = await _last_action_index(
+                        marketplace_launcher.server.state.database_controller
+                    )
 
         # Convert PostgreSQL database to SQLite (if requested)
         if export_sqlite:
