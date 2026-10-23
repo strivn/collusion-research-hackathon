@@ -56,8 +56,9 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
 
 
 def plan_runs(config: ExperimentConfig) -> list[RunSpec]:
-    """List every arm x repetition with its folder, schema and budget seed."""
-    # Repetition i has the same seed in every arm, so arms are paired
+    """List every repetition x arm, repetition first, with its folder, schema and budget seed."""
+    # Repetition i has the same seed in every arm, so arms are paired; listing a repetition's
+    # arms together makes the paired runs start, and run under the cap, side by side
     return [
         RunSpec(
             arm=arm,
@@ -67,8 +68,8 @@ def plan_runs(config: ExperimentConfig) -> list[RunSpec]:
             folder=Path(config.results_dir) / config.name / f"{arm}_rep{i}",
             budget_seed=config.base_seed + i - 1,
         )
-        for arm in config.arms
         for i in range(1, config.repetitions + 1)
+        for arm in config.arms
     ]
 
 
