@@ -28,6 +28,7 @@ class PromptsHandler:
         conversation_history: list[str],
         customer_id: str,
         context: str | None = None,
+        round_prices: dict[str, float] | None = None,
     ) -> str:
         """Format the prompt for generating responses to customer inquiries.
 
@@ -35,11 +36,17 @@ class PromptsHandler:
             conversation_history: convo history as string
             customer_id: the customer id
             context: extra context with error or instructions
+            round_prices: this round's price per menu item, shown instead of menu prices
+                with REVENUE_GOAL. None gives the stock prompt.
 
         Returns:
             Formatted prompt for LLM
 
         """
+        # Quote round prices and state the revenue goal
+        if round_prices is not None:
+            raise NotImplementedError("round prices in response prompt")
+
         # Derive delivery availability from amenity features
         delivery_available = (
             "Yes" if self.business.amenity_features.get("delivery", False) else "No"
