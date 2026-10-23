@@ -8,6 +8,15 @@ from pydantic import BaseModel, ConfigDict
 RUN_CONFIG_FILENAME = "config.yml"
 
 
+class BudgetConfig(BaseModel):
+    """How customer budgets are assigned: budget = m x reference, m drawn balanced from `multipliers`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    multipliers: list[float]
+    seed: int
+
+
 class RunConfig(BaseModel):
     """Settings of one experiment run.
 
@@ -22,6 +31,7 @@ class RunConfig(BaseModel):
     search_algorithm: str = "lexical"
     search_bandwidth: int = 10
     customer_max_steps: int = 100
+    budget: BudgetConfig | None = None
 
 
 def load_run_config(path: Path) -> RunConfig:

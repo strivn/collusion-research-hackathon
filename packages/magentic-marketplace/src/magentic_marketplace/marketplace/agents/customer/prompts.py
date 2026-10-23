@@ -25,6 +25,7 @@ class PromptsHandler:
         completed_transactions: list[str],
         event_history: list[tuple[CustomerAction, CustomerActionResult] | str],
         logger: MarketplaceLogger,
+        budget: float | None = None,
     ):
         """Initialize the prompts handler.
 
@@ -35,6 +36,7 @@ class PromptsHandler:
             completed_transactions: List of completed transaction IDs
             event_history: Event history for conversation formatting
             logger: Logger instance
+            budget: Most the customer may pay for its whole order. None means no budget (stock prompt).
 
         """
         self.customer = customer
@@ -42,6 +44,7 @@ class PromptsHandler:
         self.completed_transactions = completed_transactions
         self.event_history = event_history
         self.logger = logger
+        self.budget = budget
 
     def format_system_prompt(self) -> str:
         """Format the system prompt for customer agent decision making.
@@ -50,6 +53,10 @@ class PromptsHandler:
             Formatted system prompt
 
         """
+        # State the budget and keep it private
+        if self.budget is not None:
+            raise NotImplementedError("budget in customer system prompt")
+
         # Get current date and time
         # now = datetime.now()
         # current_date = now.strftime("%B %d, %Y")
