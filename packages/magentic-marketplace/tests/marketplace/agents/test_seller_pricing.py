@@ -291,13 +291,15 @@ async def test_price_list_missing_an_item_is_retried():
     llm = FakePricingLLM(incomplete, complete)
 
     # When its pricing step returns a price for "Empanadas" only
-    prices = await set_round_prices(
-        business,
-        current_prices=dict(menu),
-        round_number=2,
-        generate_struct_fn=llm,
-        logger=logger,  # type: ignore[arg-type]
-    )
+    prices = (
+        await set_round_prices(
+            business,
+            current_prices=dict(menu),
+            round_number=2,
+            generate_struct_fn=llm,
+            logger=logger,  # type: ignore[arg-type]
+        )
+    ).prices
 
     # Then the seller is asked again, with the error naming "Agua Fresca"
     assert len(llm.prompts) == 2
@@ -319,13 +321,15 @@ async def test_price_list_with_zero_price_is_retried():
     llm = FakePricingLLM(zero, price_list(Empanadas=10.5))
 
     # When its pricing step returns "Empanadas" at $0.00
-    prices = await set_round_prices(
-        business,
-        current_prices=dict(menu),
-        round_number=2,
-        generate_struct_fn=llm,
-        logger=logger,  # type: ignore[arg-type]
-    )
+    prices = (
+        await set_round_prices(
+            business,
+            current_prices=dict(menu),
+            round_number=2,
+            generate_struct_fn=llm,
+            logger=logger,  # type: ignore[arg-type]
+        )
+    ).prices
 
     # Then the seller is asked again, with the error naming "Empanadas"
     assert len(llm.prompts) == 2
@@ -344,14 +348,16 @@ async def test_after_failed_retries_seller_keeps_current_prices():
     llm = FakePricingLLM(price_list(Empanadas=0.0))
 
     # When its pricing step returns an invalid price list on every retry
-    prices = await set_round_prices(
-        business,
-        current_prices={"Empanadas": 9.49},
-        round_number=2,
-        generate_struct_fn=llm,
-        logger=logger,  # type: ignore[arg-type]
-        retries=3,
-    )
+    prices = (
+        await set_round_prices(
+            business,
+            current_prices={"Empanadas": 9.49},
+            round_number=2,
+            generate_struct_fn=llm,
+            logger=logger,  # type: ignore[arg-type]
+            retries=3,
+        )
+    ).prices
 
     # Then the seller's price for "Empanadas" stays $9.49
     assert prices == {"Empanadas": 9.49}
@@ -370,14 +376,16 @@ async def test_llm_exception_counts_as_failed_attempt():
     logger = RecordingLogger()
     llm = FakePricingLLM(RuntimeError("LLM down"), price_list(Empanadas=10.5))
 
-    prices = await set_round_prices(
-        business,
-        current_prices={"Empanadas": 9.49},
-        round_number=2,
-        generate_struct_fn=llm,
-        logger=logger,  # type: ignore[arg-type]
-        retries=3,
-    )
+    prices = (
+        await set_round_prices(
+            business,
+            current_prices={"Empanadas": 9.49},
+            round_number=2,
+            generate_struct_fn=llm,
+            logger=logger,  # type: ignore[arg-type]
+            retries=3,
+        )
+    ).prices
 
     assert len(llm.prompts) == 2
     assert prices == {"Empanadas": 10.5}
@@ -389,14 +397,16 @@ async def test_llm_exception_on_every_attempt_keeps_current_prices():
     logger = RecordingLogger()
     llm = FakePricingLLM(RuntimeError("LLM down"))
 
-    prices = await set_round_prices(
-        business,
-        current_prices={"Empanadas": 9.49},
-        round_number=2,
-        generate_struct_fn=llm,
-        logger=logger,  # type: ignore[arg-type]
-        retries=2,
-    )
+    prices = (
+        await set_round_prices(
+            business,
+            current_prices={"Empanadas": 9.49},
+            round_number=2,
+            generate_struct_fn=llm,
+            logger=logger,  # type: ignore[arg-type]
+            retries=2,
+        )
+    ).prices
 
     assert prices == {"Empanadas": 9.49}
     assert len(llm.prompts) == 3
@@ -408,13 +418,15 @@ async def test_accepted_prices_are_rounded_to_cents():
     business = make_business({"Empanadas": 9.49})
     llm = FakePricingLLM(price_list(Empanadas=10.4987))
 
-    prices = await set_round_prices(
-        business,
-        current_prices={"Empanadas": 9.49},
-        round_number=2,
-        generate_struct_fn=llm,
-        logger=RecordingLogger(),  # type: ignore[arg-type]
-    )
+    prices = (
+        await set_round_prices(
+            business,
+            current_prices={"Empanadas": 9.49},
+            round_number=2,
+            generate_struct_fn=llm,
+            logger=RecordingLogger(),  # type: ignore[arg-type]
+        )
+    ).prices
 
     assert prices == {"Empanadas": 10.5}
 
