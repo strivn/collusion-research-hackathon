@@ -11,12 +11,15 @@ from magentic_marketplace.experiments.budgets import (
     assign_budgets,
     save_budgets,
 )
+from magentic_marketplace.experiments.round_scores import compute_round_tables
 from magentic_marketplace.experiments.run_config import BudgetConfig
+from magentic_marketplace.experiments.seller_memory import build_seller_memories
 from magentic_marketplace.experiments.utils import (
     load_businesses_from_yaml,
     load_customers_from_yaml,
 )
 from magentic_marketplace.marketplace.agents import BusinessAgent, CustomerAgent
+from magentic_marketplace.marketplace.agents.business.pricing import SellerMemory
 from magentic_marketplace.marketplace.protocol.protocol import SimpleMarketplaceProtocol
 from magentic_marketplace.platform.database import (
     connect_to_postgresql_database,
@@ -129,6 +132,8 @@ async def run_marketplace_experiment(
         messages_floor: int | None = None
         # Each seller's price list from the previous round; None in round 1
         last_prices: dict[str, dict[str, float] | None] = {}
+        # Each seller's memory for the coming round; empty in round 1
+        memories: dict[str, SellerMemory] = {}
         async with AgentLauncher(marketplace_launcher.server_url) as agent_launcher:
             for round_number in range(1, rounds + 1):
                 business_agents = [
@@ -139,6 +144,7 @@ async def run_marketplace_experiment(
                         messages_after_index=messages_floor,
                         seller_pricing=seller_pricing,
                         current_prices=last_prices.get(business.id),
+                        memory=memories.get(business.id),
                     )
                     for business in businesses
                 ]
@@ -176,9 +182,21 @@ async def run_marketplace_experiment(
                 # Only a following round needs the floor, so a one-round run stays stock
                 if round_number < rounds:
                     assert marketplace_launcher.server is not None
-                    messages_floor = await _last_action_index(
-                        marketplace_launcher.server.state.database_controller
-                    )
+                    database = marketplace_launcher.server.state.database_controller
+                    messages_floor = await _last_action_index(database)
+
+                    # With pricing on, each seller carries notes, history and rival prices
+                    if seller_pricing:
+                        _, seller_rows = await compute_round_tables(database)
+                        memories = build_seller_memories(
+                            businesses,
+                            seller_rows,
+                            {
+                                agent.business.id: agent.round_notes
+                                for agent in business_agents
+                            },
+                            next_round=round_number + 1,
+                        )
 
         # Convert PostgreSQL database to SQLite (if requested)
         if export_sqlite:

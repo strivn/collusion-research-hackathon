@@ -16,7 +16,7 @@ from ...shared.models import Business, BusinessAgentProfile
 from ..base import BaseSimpleMarketplaceAgent
 from ..proposal_storage import OrderProposalStorage
 from .models import BusinessSummary
-from .pricing import PriceListLog, set_round_prices
+from .pricing import PriceListLog, SellerMemory, set_round_prices
 from .responses import ResponseHandler
 
 
@@ -33,6 +33,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         messages_after_index: int | None = None,
         seller_pricing: bool = False,
         current_prices: dict[str, float] | None = None,
+        memory: SellerMemory | None = None,
     ):
         """Initialize the business agent.
 
@@ -47,6 +48,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                 pricing call from round 2. False quotes menu prices (stock).
             current_prices: Last round's price per menu item, the starting point of this round's
                 pricing call. None means the menu prices.
+            memory: Notes, sales history and rivals' last prices shown in this round's pricing call.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -65,6 +67,9 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._polling_interval = polling_interval
         self._seller_pricing = seller_pricing
         self._current_prices = current_prices
+        self._memory = memory
+        # Notes the seller wrote in this round's pricing step, for next round
+        self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
         self.round_prices: dict[str, float] | None = None
 
@@ -209,14 +214,17 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                     ),
                 )
             else:
-                round_prices = await set_round_prices(
+                result = await set_round_prices(
                     self.business,
                     current_prices=self._current_prices
                     or dict(self.business.menu_features),
                     round_number=self.round_number,
                     generate_struct_fn=self.generate_struct,
                     logger=self.logger,
+                    memory=self._memory,
                 )
+                round_prices = result.prices
+                self.round_notes = result.notes
             self.round_prices = round_prices
             self._responses.round_prices = round_prices
 
