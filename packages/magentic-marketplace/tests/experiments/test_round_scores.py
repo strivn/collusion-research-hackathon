@@ -569,6 +569,8 @@ async def test_refused_over_budget_payment_is_counted(run: RunBuilder):
 async def test_two_refusals_in_a_round_count_two(run: RunBuilder):
     """Scenario: Refused over-budget payments are counted (two refusals in one round)."""
     await round_1_activity(run)
+    # A refusal follows the customer's own round-2 actions, so round 2 has activity
+    await run.fetch(2, SUSAN)
     for n in (1, 2):
         await run.log(
             RefusedPaymentLog(
