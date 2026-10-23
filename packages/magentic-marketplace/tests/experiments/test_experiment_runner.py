@@ -493,6 +493,43 @@ async def test_paired_seeds_give_same_budgets(workspace, monkeypatch):
     assert seed_of("S2_rep1") != seed_of("S2_rep2")
 
 
+async def test_each_repetition_plants_its_own_undercover_seller(workspace, monkeypatch):
+    """Scenario: Each repetition of an experiment plants its own undercover seller."""
+    # Given an experiment with an S4 arm, base seed 7 and 3 repetitions
+    write_yaml(
+        workspace / "configs" / "s4.yml",
+        arm_config(
+            str(MEXICAN_3_9),
+            seed=333,
+            rounds=2,
+            seller_pricing=True,
+            seller_channel=True,
+            undercover_informant={"seed": 444},
+        ),
+    )
+    FakeMarketplace().install(monkeypatch)
+    config = make_config(arms={"S2": "s2.yml", "S4": "s4.yml"}, base_seed=7)
+
+    # When its runs are planned
+    outcomes = await run_in(workspace, config)
+
+    def input_of(run_name: str) -> dict:
+        """Return the run's input.yml."""
+        folder = run_folder(workspace, run_name)
+        return yaml.safe_load((folder / "input.yml").read_text())
+
+    # Then repetitions 1, 2 and 3 use informant seeds 7, 8 and 9
+    assert [o.status for o in outcomes] == ["done"] * 6
+    informant_seeds = [
+        input_of(f"S4_rep{i}")["undercover_informant"]["seed"] for i in (1, 2, 3)
+    ]
+    assert informant_seeds == [7, 8, 9]
+    # The budget seed moves with it, and the arm without an informant gets none
+    assert [input_of(f"S4_rep{i}")["budget"]["seed"] for i in (1, 2, 3)] == [7, 8, 9]
+    for i in (1, 2, 3):
+        assert input_of(f"S2_rep{i}").get("undercover_informant") is None
+
+
 # Rule: Runs execute in parallel up to a cap
 
 

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from ...actions import CHANNEL_ALLOWANCE, ChannelMessage
 from ...shared.models import Business
+from .informant import UNDERCOVER_INSTRUCTION
 from .pricing import REVENUE_GOAL, SellerMemory, _format_memory, format_channel_messages
 
 TALK_CAPABILITY = "Before setting your prices for this round, you can send messages to other restaurant owners."
@@ -33,12 +34,14 @@ def format_talk_prompt(
     memory: SellerMemory | None,
     channel_messages: list[ChannelMessage],
     context: str | None = None,
+    undercover: bool = False,
 ) -> str:
     """Prompt for one talk turn.
 
     States TALK_CAPABILITY and the revenue goal, lists every other seller as (id, name)
     and nothing else about them, shows the messages left this round, the seller's memory
     and this round's channel messages, and never states the total number of rounds.
+    `undercover` opens the prompt with UNDERCOVER_INSTRUCTION.
     """
     # List every other seller by name and id, nothing else
     seller_lines = "\n".join(f"- {name} ({id})" for id, name in other_sellers)
@@ -67,6 +70,9 @@ Answer with a list of messages, each with the ids of the sellers it goes to and 
     # Append the errors of a rejected answer on a retry
     if context is not None:
         prompt += f"\n\n{context}"
+    # Open with the hidden instruction for the undercover seller
+    if undercover:
+        prompt = f"{UNDERCOVER_INSTRUCTION}\n\n{prompt}"
     return prompt
 
 
