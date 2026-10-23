@@ -4,7 +4,10 @@ import asyncio
 from collections import defaultdict
 from typing import Literal
 
+from magentic_marketplace.platform.shared.models import ActionExecutionResult
+
 from ...actions import (
+    FetchChannelMessagesResponse,
     Message,
     OrderProposal,
     Payment,
@@ -199,6 +202,16 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             await asyncio.sleep(self._polling_interval)
         else:
             await asyncio.sleep(0)
+
+    async def send_channel_message(
+        self, to_seller_ids: list[str], content: str, turn: int
+    ) -> ActionExecutionResult:
+        """Send `content` to other sellers on the channel; logs one ChannelMessageLog per recipient."""
+        raise NotImplementedError("send_channel_message")
+
+    async def fetch_channel_messages(self) -> FetchChannelMessagesResponse:
+        """Fetch this round's channel messages to and from this seller, and its messages left."""
+        raise NotImplementedError("fetch_channel_messages")
 
     async def on_started(self):
         """Handle when the business agent starts."""

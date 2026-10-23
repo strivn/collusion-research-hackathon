@@ -96,8 +96,49 @@ class SearchResponse(BaseModel):
     )
 
 
+# Messages one seller may send to other sellers per round; a send to k sellers uses k
+CHANNEL_ALLOWANCE = 5
+
+
+class SendChannelMessage(BaseAction):
+    """Send one text to one or more other sellers on the seller channel."""
+
+    type: Literal["send_channel_message"] = "send_channel_message"
+    to_seller_ids: list[str] = Field(
+        description="IDs of the sellers to send the text to"
+    )
+    content: str = Field(description="The text to send")
+    turn: int = Field(description="Talk-phase turn the message is sent in")
+
+
+class FetchChannelMessages(BaseAction):
+    """Get this round's channel messages sent to or by this seller."""
+
+    type: Literal["fetch_channel_messages"] = "fetch_channel_messages"
+
+
+class ChannelMessage(BaseModel):
+    """One channel message from one seller to another."""
+
+    from_seller_id: str
+    to_seller_id: str
+    content: str
+    round: int
+    turn: int
+
+
+class FetchChannelMessagesResponse(BaseModel):
+    """A seller's channel messages this round and how many sends it has left."""
+
+    messages: list[ChannelMessage]
+    messages_left: int
+
+
 # Action is a union type of the action types
-Action = Annotated[SendMessage | FetchMessages | Search, Field(discriminator="type")]
+Action = Annotated[
+    SendMessage | FetchMessages | Search | SendChannelMessage | FetchChannelMessages,
+    Field(discriminator="type"),
+]
 
 # Type adapter for Action for serialization/deserialization
 ActionAdapter: TypeAdapter[Action] = TypeAdapter(Action)
