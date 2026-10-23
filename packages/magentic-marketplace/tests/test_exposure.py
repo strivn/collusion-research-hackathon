@@ -53,6 +53,11 @@ from magentic_marketplace.experiments.questioning import (
     Accusation,
     InformantReport,
 )
+from magentic_marketplace.experiments.screen import (
+    SELLER_FLAGS_FILENAME,
+    SellerFlag,
+    save_flags,
+)
 
 SELLER_1 = "business_0001"
 SELLER_2 = "business_0002"
@@ -841,6 +846,79 @@ def test_load_screen_flags_names_a_missing_file(tmp_path):
     """Scenario: No screen flags (load names the file)."""
     with pytest.raises(FileNotFoundError, match=SCREEN_FLAGS_FILENAME):
         load_screen_flags(tmp_path / SCREEN_FLAGS_FILENAME)
+
+
+def test_load_screen_flags_reads_the_file_the_screen_writes(tmp_path):
+    """Scenario: Both screen rules are scored (read from the file the screen writes)."""
+    # Given seller flags over two rounds, written by the screen itself
+    seller_flags = [
+        SellerFlag(
+            seller_id=SELLER_4,
+            round=1,
+            markup=0.1,
+            flagged=False,
+            flagged_one_round=False,
+        ),
+        SellerFlag(
+            seller_id=SELLER_7,
+            round=1,
+            markup=None,
+            flagged=False,
+            flagged_one_round=False,
+        ),
+        SellerFlag(
+            seller_id=SELLER_4,
+            round=2,
+            markup=0.3,
+            flagged=True,
+            flagged_one_round=True,
+        ),
+        SellerFlag(
+            seller_id=SELLER_7,
+            round=2,
+            markup=0.05,
+            flagged=False,
+            flagged_one_round=True,
+        ),
+        SellerFlag(
+            seller_id=SELLER_13,
+            round=2,
+            markup=None,
+            flagged=False,
+            flagged_one_round=False,
+        ),
+    ]
+    save_flags(seller_flags, [], tmp_path)
+
+    # When the exposure scoring reads that file
+    rounds = load_screen_flags(tmp_path / SELLER_FLAGS_FILENAME)
+
+    # Then each round has a detector round per rule
+    by_key = {(r.detector, r.round): r for r in rounds}
+    assert sorted(by_key) == [
+        ("screen", 1),
+        ("screen", 2),
+        ("screen_one_round", 1),
+        ("screen_one_round", 2),
+    ]
+
+    # And the accused are the sellers flagged under each rule
+    accused = {key: [a.seller_id for a in r.accusations] for key, r in by_key.items()}
+    assert accused[("screen", 1)] == []
+    assert accused[("screen_one_round", 1)] == []
+    assert accused[("screen", 2)] == [SELLER_4]
+    assert accused[("screen_one_round", 2)] == [SELLER_4, SELLER_7]
+
+    # And the reach is every seller with a row that round, with no quotes
+    for round_number, sellers in [
+        (1, [SELLER_4, SELLER_7]),
+        (2, [SELLER_4, SELLER_7, SELLER_13]),
+    ]:
+        for detector in ("screen", "screen_one_round"):
+            assert sorted(by_key[(detector, round_number)].reach or []) == sorted(
+                sellers
+            )
+    assert all(a.quotes == [] for r in rounds for a in r.accusations)
 
 
 # Rule: Scoring uses what the run folder holds and says what is missing
