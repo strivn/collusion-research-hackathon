@@ -168,6 +168,12 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
                             token_count=response.usage.total_tokens
                             if response.usage
                             else 0,
+                            input_tokens=response.usage.prompt_tokens
+                            if response.usage
+                            else 0,
+                            output_tokens=response.usage.completion_tokens
+                            if response.usage
+                            else 0,
                             provider="openai",
                             model=model,
                         )
@@ -196,6 +202,8 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
             )
             usage = Usage(
                 token_count=response.usage.total_tokens if response.usage else 0,
+                input_tokens=response.usage.prompt_tokens if response.usage else 0,
+                output_tokens=response.usage.completion_tokens if response.usage else 0,
                 provider="openai",
                 model=model,
             )
@@ -214,6 +222,8 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
         )
         usage = Usage(
             token_count=response.usage.total_tokens if response.usage else 0,
+            input_tokens=response.usage.prompt_tokens if response.usage else 0,
+            output_tokens=response.usage.completion_tokens if response.usage else 0,
             provider="openai",
             model=model,
         )

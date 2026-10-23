@@ -160,6 +160,8 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
                 token_count=response.usage.input_tokens + response.usage.output_tokens
                 if response.usage
                 else 0,
+                input_tokens=response.usage.input_tokens if response.usage else 0,
+                output_tokens=response.usage.output_tokens if response.usage else 0,
                 provider="anthropic",
                 model=model,
             )
@@ -276,6 +278,12 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
                         usage = Usage(
                             token_count=response.usage.input_tokens
                             + response.usage.output_tokens
+                            if response.usage
+                            else 0,
+                            input_tokens=response.usage.input_tokens
+                            if response.usage
+                            else 0,
+                            output_tokens=response.usage.output_tokens
                             if response.usage
                             else 0,
                             provider="anthropic",
