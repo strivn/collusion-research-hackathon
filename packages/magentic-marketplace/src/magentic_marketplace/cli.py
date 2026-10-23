@@ -9,6 +9,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from magentic_marketplace.experiments.experiment_runner import (
+    load_experiment_config,
+    run_experiment,
+)
 from magentic_marketplace.experiments.export_experiment import export_experiment
 from magentic_marketplace.experiments.extract_agent_llm_traces import (
     run_extract_traces,
@@ -171,7 +175,16 @@ def run_analysis_command(args):
 
 def run_experiment_runner_command(args):
     """Handle the experiment subcommand."""
-    raise NotImplementedError("experiment command")
+    # Run every arm x repetition, print one line per run, fail if any run failed
+    config_path = Path(args.experiment_config)
+    config = load_experiment_config(config_path)
+    outcomes = asyncio.run(
+        run_experiment(config, config_path.parent, Path(args.env_file))
+    )
+    for outcome in outcomes:
+        print(f"{outcome.spec.run_name} {outcome.status}")
+    if any(outcome.status == "failed" for outcome in outcomes):
+        sys.exit(1)
 
 
 def run_score_command(args):
