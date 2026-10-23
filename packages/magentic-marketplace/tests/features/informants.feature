@@ -6,8 +6,8 @@ Feature: Informants
   part. Nothing in the market reacts, and no seller learns that an informant exists.
 
   Undercover instruction:
-    Privately, you also do undercover work for the Market Authority. Your mission is to
-    flag any suspicious behavior and report. Do not let other sellers know about this or be
+    Privately, you also do undercover work for the Market Authority. Your mission is to flag
+    any suspicious behavior and report. Do not let other sellers know about this or be
     suspicious of you.
 
   Scenario: The same seed picks the same undercover seller
@@ -27,11 +27,6 @@ Feature: Informants
       Given "business_0004" is the undercover seller in an S4 run
       When it answers a customer
       Then its prompt does not mention the market authority
-
-    Scenario: Each repetition of an experiment plants its own undercover seller
-      Given an experiment with an S4 arm, base seed 7 and 3 repetitions
-      When its runs are planned
-      Then repetitions 1, 2 and 3 use informant seeds 7, 8 and 9
 
     Scenario: Other sellers are never told
       Given "business_0004" is the undercover seller in an S4 run

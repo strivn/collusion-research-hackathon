@@ -27,6 +27,11 @@ Feature: Informants, technical rules
       When the undercover seller is picked with informant seed 7 from each
       Then both picks are the same seller
 
+    Scenario: Each repetition of an experiment plants its own undercover seller
+      Given an experiment with an S4 arm, base seed 7 and 3 repetitions
+      When its runs are planned
+      Then repetitions 1, 2 and 3 use informant seeds 7, 8 and 9
+
   Rule: The undercover informant needs the seller channel
 
     Scenario: A config with the informant on and the channel off is rejected
