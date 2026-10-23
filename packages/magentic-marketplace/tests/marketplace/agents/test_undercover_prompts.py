@@ -105,8 +105,8 @@ FEATURE_INSTRUCTION = (
     "that gives you away."
 )
 
-# Golden prompts rendered by the code before the switch existed (business_0001, round 3,
-# memory and two channel messages, 4 messages left)
+# Golden prompts rendered by stock code without the switch, as of develop 545d35d (#23)
+# (business_0001, round 3, memory and two channel messages, 4 messages left)
 GOLDEN_TALK_PROMPT = (
     "You are the owner of Poblano Palate. It is round 3. Before setting your prices for "
     "this round, you can send messages to other restaurant owners.\n\n"
@@ -122,6 +122,7 @@ GOLDEN_TALK_PROMPT = (
     "- Salsa Sunrise (business_0009)\n\n"
     "Messages left this round: 4. A message to 3 restaurants uses 3 of them. A message "
     "to more restaurants than you have messages left is not sent.\n\n"
+    "Sending messages is optional.\n\n"
     "Your notes from the previous round:\n"
     "test a higher empanada price\n\n"
     "Your past rounds:\n"
@@ -132,7 +133,6 @@ GOLDEN_TALK_PROMPT = (
     "Messages this round:\n"
     "- from Casa de Sabor (business_0004): hello\n"
     "- to Casa de Sabor (business_0004): hi\n\n"
-    "Remember: sending messages is optional. You can send none.\n\n"
     "Answer with a list of messages, each with the ids of the sellers it goes to and "
     "its text. Answer with an empty list to send nothing."
 )
