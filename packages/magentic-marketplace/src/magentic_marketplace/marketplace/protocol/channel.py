@@ -29,15 +29,22 @@ def _is_seller(profile: AgentProfile) -> bool:
     )
 
 
-async def _successful_sends(
-    query: Any, database: BaseDatabaseController
-) -> list[SendChannelMessage]:
-    """Return the non-error SendChannelMessage actions matching `query`, in row order."""
-    rows: list[ActionRow] = await database.actions.find(query, RangeQueryParams())
+async def _round_sends(
+    round_number: int, database: BaseDatabaseController
+) -> list[ActionRow]:
+    """Return the round's delivered SendChannelMessage rows, in row order.
+
+    The round is matched in Python: it is stored as a JSON number, which SQLite and
+    Postgres compare differently, and a run's channel holds few rows.
+    """
+    rows: list[ActionRow] = await database.actions.find(
+        queries.actions.channel.all(), RangeQueryParams()
+    )
     return [
-        SendChannelMessage.model_validate(row.data.request.parameters)
+        row
         for row in rows
         if not row.data.result.is_error
+        and row.data.request.metadata.get("round", 1) == round_number
     ]
 
 
@@ -45,11 +52,15 @@ async def _messages_left(
     seller_id: str, round_number: int, database: BaseDatabaseController
 ) -> int:
     """Return how many of CHANNEL_ALLOWANCE the seller has left in the round."""
-    query = queries.actions.channel.in_round(
-        round_number
-    ) & queries.actions.channel.from_agent(seller_id)
-    sends = await _successful_sends(query, database)
-    return CHANNEL_ALLOWANCE - sum(len(send.to_seller_ids) for send in sends)
+    rows = await _round_sends(round_number, database)
+    used = sum(
+        len(
+            SendChannelMessage.model_validate(row.data.request.parameters).to_seller_ids
+        )
+        for row in rows
+        if row.data.agent_id == seller_id
+    )
+    return CHANNEL_ALLOWANCE - used
 
 
 async def execute_send_channel_message(
@@ -128,18 +139,9 @@ async def execute_fetch_channel_messages(
             content=f"Fetch refused: {agent.id} is not a seller.", is_error=True
         )
 
-    # This round's sends by the seller or listing it as a recipient, in row order
-    query = queries.actions.channel.in_round(round_number) & (
-        queries.actions.channel.from_agent(agent.id)
-        | queries.actions.channel.to_agent(agent.id)
-    )
-    rows: list[ActionRow] = await database.actions.find(query, RangeQueryParams())
-
-    # Expand each send to one message per (sender, recipient) pair
+    # This round's delivered sends, expanded to the (sender, recipient) pairs that involve the seller
     messages: list[ChannelMessage] = []
-    for row in rows:
-        if row.data.result.is_error:
-            continue
+    for row in await _round_sends(round_number, database):
         sent = SendChannelMessage.model_validate(row.data.request.parameters)
         sender_id = row.data.agent_id
         for recipient_id in sent.to_seller_ids:
