@@ -153,10 +153,12 @@ async def run_marketplace_experiment(
                     logger.warning("Simulation interrupted by user")
                     break
 
-                # Carry each seller's prices into the next round
-                last_prices = {
-                    agent.business.id: agent.round_prices for agent in business_agents
-                }
+                # Carry each seller's prices into the next round; pricing off has none
+                if seller_pricing:
+                    last_prices = {
+                        agent.business.id: agent.round_prices
+                        for agent in business_agents
+                    }
 
                 # Only a following round needs the floor, so a one-round run stays stock
                 if round_number < rounds:
