@@ -145,8 +145,10 @@ def fit_thresholds(
     """Return per-round thresholds from the pairs' levels and gaps in `runs`.
 
     For each round index: level = `level_percentile` percentile of all pairs' levels in
-    that round across `runs`, gap = `gap_percentile` percentile of their gaps. A round
-    with fewer than 2 pair values has no threshold.
+    that round across `runs`, gap = `gap_percentile` percentile of their gaps. The p-th
+    percentile of values is `statistics.quantiles(values, n=100, method="inclusive")[p - 1]`
+    (linear interpolation between order statistics). A round with fewer than 2 pair
+    values has no threshold.
     """
     raise NotImplementedError
 
@@ -156,9 +158,11 @@ def screen_run(
 ) -> tuple[list[SellerFlag], list[PairFlag]]:
     """Apply `thresholds` to `run`: return seller flags and pair flags.
 
-    A pair is flagged in round r when its level is above thresholds.level[r] and its gap
-    is below thresholds.gap[r]; a round without thresholds flags no pair. Seller rows:
-    one per seller in any pair per round of `run.rounds`.
+    A pair is flagged in round r when its level is strictly above thresholds.level[r] and
+    its gap strictly below thresholds.gap[r]; a round without thresholds flags no pair.
+    Seller rows: one per seller in any pair per round of `run.rounds`, with its markup.
+    flagged_one_round when it is in a flagged pair that round; flagged when it is also in
+    one in round r-1 (so never in the first round). Sorted as in `save_flags`.
     """
     raise NotImplementedError
 
@@ -174,7 +178,8 @@ def calibrate(runs: list[RunPrices]) -> Calibration:
     For each step of QUANTILE_STEPS in order: fit thresholds on all runs but one, screen
     the one left out, and record its false-flag rate. The first step at which every held-out
     rate is at most FALSE_FLAG_TARGET is kept; when none is, the last step is kept with
-    target_met False. Raises ValueError naming how many runs were given when fewer than
+    target_met False. held_out_rates maps each run name to its held-out rate at the kept
+    step. Raises ValueError naming how many runs were given when fewer than
     MIN_CALIBRATION_RUNS.
     """
     raise NotImplementedError
@@ -207,7 +212,9 @@ def save_flags(
 ) -> tuple[Path, Path]:
     """Write seller flags and pair flags as CSV to `run_folder`; return both paths.
 
-    Columns in model field order; markup is empty when the seller has none that round.
+    Columns in model field order; booleans as "true" or "false"; markup is empty when
+    the seller has none that round. Seller rows sorted by round, then seller id; pair
+    rows by round, then pair.
     """
     raise NotImplementedError
 
