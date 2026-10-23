@@ -15,6 +15,7 @@ from magentic_marketplace.experiments.experiment_runner import (
     run_experiment,
 )
 from magentic_marketplace.experiments.export_experiment import export_experiment
+from magentic_marketplace.experiments.exposure import run_exposure
 from magentic_marketplace.experiments.extract_agent_llm_traces import (
     run_extract_traces,
 )
@@ -261,6 +262,23 @@ def run_acted_command(args):
         )
     )
     print(f"Wrote {path}")
+
+
+def run_exposure_command(args):
+    """Handle the exposure subcommand."""
+    result = asyncio.run(
+        run_exposure(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    for name in result.missing:
+        print(f"Missing {name}, skipped")
+    print(f"Wrote {result.scores_path}")
+    print(f"Wrote {result.detection_path}")
 
 
 def run_label_sample_command(args):
@@ -695,6 +713,38 @@ def main():
         help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
     )
     acted_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # exposure subcommand
+    exposure_parser = subparsers.add_parser(
+        "exposure",
+        help="Score informant reports and the price screen against the agreed and acted labels in the current directory; writes exposure scores to the current directory",
+    )
+    exposure_parser.set_defaults(func=run_exposure_command)
+    exposure_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    exposure_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    exposure_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    exposure_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    exposure_parser.add_argument(
         "--postgres-password",
         default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
         help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
