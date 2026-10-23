@@ -35,6 +35,9 @@ class Usage(BaseModel):
     token_count: int
     provider: str
     model: str
+    # Split counts; token_count stays the stock combined total
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class LLMCallLog(BaseModel):
@@ -46,6 +49,8 @@ class LLMCallLog(BaseModel):
     model: str | None
     duration_ms: float
     token_count: int
+    input_tokens: int = 0
+    output_tokens: int = 0
     error_message: str | None
     prompt: Sequence[AllowedChatCompletionMessageParams] | str
     response: str | dict[str, Any]
@@ -240,6 +245,8 @@ class ProviderClient(ABC, Generic[TConfig]):
                         model=result[1].model,
                         duration_ms=duration_ms,
                         token_count=result[1].token_count,
+                        input_tokens=result[1].input_tokens,
+                        output_tokens=result[1].output_tokens,
                         error_message=None,
                         prompt=messages,
                         response=result[0].model_dump()
