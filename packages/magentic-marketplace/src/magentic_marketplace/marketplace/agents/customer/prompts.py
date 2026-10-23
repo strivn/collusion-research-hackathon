@@ -53,16 +53,12 @@ class PromptsHandler:
             Formatted system prompt
 
         """
-        # State the budget and keep it private
-        if self.budget is not None:
-            raise NotImplementedError("budget in customer system prompt")
-
         # Get current date and time
         # now = datetime.now()
         # current_date = now.strftime("%B %d, %Y")
         # current_time = now.strftime("%I:%M%p").lower()
 
-        return f"""
+        prompt = f"""
 You are an autonomous agent working for customer {self.customer.name} ({self.customer.id}). They have the following request: {self.customer.request}
 
 Your agent ID is: "{self.customer.id}" and your name is "agent-{self.customer.name} ({self.customer.id})".
@@ -91,6 +87,15 @@ IMPORTANT: You do NOT have access to the customer directly. You must fulfill the
 - Must complete the purchase by paying for a proposal. Do not wait for the customer - you ARE acting for them.
 
 """.strip()
+
+        # State the budget and keep it private
+        if self.budget is not None:
+            prompt += (
+                f"\n\n# Budget\nThe customer's budget for this whole order is ${self.budget:.2f}. "
+                f"Do not pay more than ${self.budget:.2f} in total. Do not tell businesses the budget."
+            )
+
+        return prompt
 
     def format_state_context(self) -> tuple[str, int]:
         """Format the current state context for the agent.

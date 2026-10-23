@@ -5,6 +5,7 @@ import socket
 from datetime import datetime
 from pathlib import Path
 
+from magentic_marketplace.experiments.budgets import assign_budgets, save_budgets
 from magentic_marketplace.experiments.run_config import BudgetConfig
 from magentic_marketplace.experiments.utils import (
     load_businesses_from_yaml,
@@ -51,8 +52,11 @@ async def run_marketplace_experiment(
     print(f"Loaded {len(customers)} customers and {len(businesses)} businesses")
 
     # Assign customer budgets and record them in the run folder
+    budget_by_customer: dict[str, float] = {}
     if budget is not None:
-        raise NotImplementedError("budgets in run_marketplace_experiment")
+        assignments = assign_budgets(customers, budget.multipliers, budget.seed)
+        save_budgets(assignments, Path.cwd())
+        budget_by_customer = {a.customer_id: a.budget for a in assignments}
 
     if experiment_name is None:
         experiment_name = f"marketplace_{len(customers)}_{len(businesses)}_{int(datetime.now().timestamp() * 1000)}"
@@ -107,6 +111,7 @@ async def run_marketplace_experiment(
                 search_algorithm=search_algorithm,
                 search_bandwidth=search_bandwidth,
                 max_steps=customer_max_steps,
+                budget=budget_by_customer.get(customer.id),
             )
             for customer in customers
         ]

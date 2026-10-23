@@ -279,8 +279,24 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
                 stored_proposal = self.proposal_storage.get_proposal(proposal_to_accept)
 
                 # Refuse any payment above the budget
-                if stored_proposal and self._budget is not None:
-                    raise NotImplementedError("budget check in pay path")
+                # Compare in cents so float noise cannot refuse an at-budget proposal
+                if (
+                    stored_proposal
+                    and self._budget is not None
+                    and round(stored_proposal.proposal.total_price * 100)
+                    > round(self._budget * 100)
+                ):
+                    total = stored_proposal.proposal.total_price
+                    self.logger.warning(
+                        f"Refused payment for proposal {proposal_to_accept}: ${total:.2f} exceeds budget ${self._budget:.2f}"
+                    )
+                    send_message_results.pay_message_results.append(
+                        (
+                            False,
+                            f"Payment refused: ${total:.2f} exceeds your budget of ${self._budget:.2f}.",
+                        )
+                    )
+                    continue
 
                 if stored_proposal:
                     payment = Payment(

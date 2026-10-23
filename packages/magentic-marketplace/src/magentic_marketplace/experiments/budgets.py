@@ -1,7 +1,10 @@
 """Customer budgets: budget = m x reference, with m drawn balanced from a seed."""
 
+import random
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
+import yaml
 from pydantic import BaseModel
 
 from magentic_marketplace.marketplace.shared.models import Customer
@@ -19,12 +22,14 @@ class CustomerBudget(BaseModel):
 
 def reference_price(customer: Customer) -> float:
     """Sum of the customer's `menu_features` prices."""
-    raise NotImplementedError("reference_price")
+    return sum(customer.menu_features.values())
 
 
 def budget_for(customer: Customer, m: float) -> float:
     """Return m x reference for `customer`, rounded to cents (half up)."""
-    raise NotImplementedError("budget_for")
+    # Go through str so 1.25 x 13.48 is exact decimal arithmetic, not float noise
+    exact = Decimal(str(m)) * Decimal(str(reference_price(customer)))
+    return float(exact.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
 def assign_budgets(
@@ -35,7 +40,22 @@ def assign_budgets(
     Balanced: customer counts per multiplier differ by at most one. The same customers,
     multipliers and seed always give the same assignment.
     """
-    raise NotImplementedError("assign_budgets")
+    # Shuffle the sorted ids, then deal multipliers round-robin so counts differ by at most one
+    ordered = sorted(customers, key=lambda customer: customer.id)
+    shuffled_ids = [customer.id for customer in ordered]
+    random.Random(seed).shuffle(shuffled_ids)
+    m_by_id = {
+        customer_id: multipliers[i % len(multipliers)]
+        for i, customer_id in enumerate(shuffled_ids)
+    }
+    return [
+        CustomerBudget(
+            customer_id=customer.id,
+            m=m_by_id[customer.id],
+            budget=budget_for(customer, m_by_id[customer.id]),
+        )
+        for customer in ordered
+    ]
 
 
 def save_budgets(budgets: list[CustomerBudget], run_folder: Path) -> Path:
@@ -43,4 +63,7 @@ def save_budgets(budgets: list[CustomerBudget], run_folder: Path) -> Path:
 
     Returns the path written.
     """
-    raise NotImplementedError("save_budgets")
+    # One mapping per customer, in the order given (customer id order)
+    path = run_folder / BUDGETS_FILENAME
+    path.write_text(yaml.safe_dump([b.model_dump() for b in budgets], sort_keys=False))
+    return path
