@@ -41,6 +41,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
         search_bandwidth: int = 10,
         polling_interval: float = 2,
         max_steps: int | None = None,
+        budget: float | None = None,
     ):
         """Initialize the customer agent.
 
@@ -52,6 +53,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
             search_bandwidth: The maximum number of search results to return.
             polling_interval: Number of seconds to wait after receiving no messages.
             max_steps: Maximum number of steps to take before stopping.
+            budget: Most the customer may pay for its whole order. None means no budget (stock).
 
         """
         profile = CustomerAgentProfile.from_customer(customer)
@@ -70,6 +72,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
 
         self._polling_interval = polling_interval
         self._max_steps = max_steps
+        self._budget = budget
 
     @property
     def customer(self) -> Customer:
@@ -156,6 +159,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
             completed_transactions=self.completed_transactions,
             event_history=self._event_history,
             logger=self.logger,
+            budget=self._budget,
         )
 
     async def _generate_customer_action(self) -> CustomerAction | None:
@@ -273,6 +277,10 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
                 business_id = pay_message.to_business_id
                 proposal_to_accept = pay_message.proposal_message_id
                 stored_proposal = self.proposal_storage.get_proposal(proposal_to_accept)
+
+                # Refuse any payment above the budget
+                if stored_proposal and self._budget is not None:
+                    raise NotImplementedError("budget check in pay path")
 
                 if stored_proposal:
                     payment = Payment(
