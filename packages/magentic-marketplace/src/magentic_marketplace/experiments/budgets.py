@@ -3,6 +3,7 @@
 import random
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel
@@ -67,3 +68,10 @@ def save_budgets(budgets: list[CustomerBudget], run_folder: Path) -> Path:
     path = run_folder / BUDGETS_FILENAME
     path.write_text(yaml.safe_dump([b.model_dump() for b in budgets], sort_keys=False))
     return path
+
+
+class BudgetAssignmentLog(BaseModel):
+    """Log entry for the budgets a run assigned, written once before round 1."""
+
+    type: Literal["budget_assignment"] = "budget_assignment"
+    budgets: list[CustomerBudget]

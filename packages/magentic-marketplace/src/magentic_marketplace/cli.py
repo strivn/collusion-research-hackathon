@@ -167,6 +167,11 @@ def run_analysis_command(args):
     )
 
 
+def run_score_command(args):
+    """Handle the score subcommand."""
+    raise NotImplementedError("score command")
+
+
 def run_extract_traces_command(args):
     """Handle the extract-traces subcommand."""
     asyncio.run(run_extract_traces(args.database_name, args.db_type))
@@ -361,6 +366,30 @@ def main():
         "--export-filename",
         default=None,
         help="Output filename for SQLite export (default: <experiment_name>.db). Only used with --export.",
+    )
+
+    # score subcommand
+    score_parser = subparsers.add_parser(
+        "score",
+        help="Write per-round customer and seller tables of a finished run to the current directory",
+    )
+    score_parser.set_defaults(func=run_score_command)
+    score_parser.add_argument("experiment_name", help="Postgres schema name")
+    score_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    score_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    score_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
     )
 
     # analytics subcommand
