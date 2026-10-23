@@ -313,6 +313,11 @@ Feature: Ground truth, technical rules
       When the informant quotes it in its round-3 report
       Then its round-3 grounding is 0.0
 
+    Scenario: An empty quote is not grounded
+      Given "business_0007" sent "let's both charge $12" to the informant in round 3
+      When the informant accuses "business_0007" with the quotes "let's both charge $12" and " "
+      Then its round-3 grounding is 0.5 and its share authored by the accused is 0.5
+
   Rule: A quote is authored by the accused only when the accused sent it
 
     Scenario: The informant's own proposal used against a seller
