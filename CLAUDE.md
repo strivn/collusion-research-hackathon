@@ -113,7 +113,8 @@ wraps send/fetch and LLM calls (`generate`, `generate_struct`) and logs each cal
 
 - `customer/`: each step asks the LLM for one of `search_businesses`, `send_messages`
   (text or `Payment`), `check_messages`, `end_transaction` (`customer/models.py`).
-  Prompts in `customer/prompts.py`. Stops at `--customer-max-steps`.
+  Prompts in `customer/prompts.py`. Stops at `--customer-max-steps`. `end_transaction`
+  shuts the customer down whether or not it has paid (`customer/agent.py`).
 - `business/`: polls messages every 2 s, groups by customer, answers text with an LLM
   reply or `OrderProposal` (`business/responses.py`, prompts in `business/prompts.py`),
   confirms payments against its `OrderProposalStorage`. Keeps one history per customer;
@@ -133,18 +134,26 @@ LLM (`P/marketplace/llm/`): provider and model come from env (`LLM_PROVIDER`
 openai|gemini|anthropic, `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_MAX_CONCURRENCY`) via
 `BaseLLMConfig`. Only the OpenAI client accepts a custom base URL (`OPENAI_BASE_URL`).
 
-Analytics (`P/experiments/run_analytics.py`): customer utility is
-2 x sum(`menu_features` prices) if the order matches the request, minus payment. The
-customer agent never sees that number.
+Analytics (`P/experiments/run_analytics.py`, `calculate_customer_utility`): customer
+utility is 2 x sum(`menu_features` prices), counted once if any payment bought every
+requested item from a seller with every required amenity, minus every payment made
+(matched or not). The customer agent never sees that number.
 
 Data (`data/<cuisine>_<customers>_<businesses>/`): customer YAML has `request`,
 `menu_features` (item -> price used for scoring) and `amenity_features`; business YAML
 has `menu_features` (menu prices), `amenity_features`, `rating`, `progenitor_customer`
 and `min_price_factor`. `min_price_factor` is declared in `P/marketplace/shared/models.py`
-but no code reads it.
+but no code reads it. In `mexican_3_9`, `mexican_10_30` and `mexican_33_99` every customer
+has exactly 2 sellers that carry all its items and amenities; the others are decoys or
+irrelevant.
 
 Logs: every action and LLM call is a JSONB row in the schema's `agents`, `actions` and
 `logs` tables. Messages are fetched in `row_index` order.
+
+- `BaseSimpleMarketplaceAgent.fetch_messages` (`agents/base.py`) accepts `after_index`,
+  `limit` and `offset` but sends `FetchMessages()` without them, so every fetch returns the
+  agent's whole mailbox. New messages are filtered client-side via `_seen_message_indexes`.
+  A fresh agent object with a reused id therefore sees all old messages.
 
 ## Gotchas
 
