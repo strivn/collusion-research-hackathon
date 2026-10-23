@@ -296,6 +296,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                     logger=self.logger,
                     memory=self._memory,
                     channel_messages=channel_messages,
+                    seller_names=dict(self._other_sellers),
                 )
                 round_prices = result.prices
                 self.round_notes = result.notes

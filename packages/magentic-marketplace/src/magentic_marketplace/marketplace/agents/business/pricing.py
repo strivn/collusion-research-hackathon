@@ -138,13 +138,15 @@ def format_pricing_prompt(
     context: str | None = None,
     memory: SellerMemory | None = None,
     channel_messages: list[ChannelMessage] | None = None,
+    seller_names: dict[str, str] | None = None,
 ) -> str:
     """Prompt asking the seller to set a price for every menu item for `round_number`.
 
     Lists each item with its current price and states REVENUE_GOAL. `context` carries
     the errors of a rejected price list on a retry. `memory` adds the seller's notes,
     its prices, units sold and revenue per past round, rivals' last prices, and asks for
-    notes that are the only thing it will remember next round.
+    notes that are the only thing it will remember next round. `channel_messages` adds
+    this round's channel messages, naming other sellers from `seller_names` when given.
     """
     # List each menu item with its current price
     price_lines = "\n".join(
@@ -155,7 +157,7 @@ def format_pricing_prompt(
     # Show this round's channel messages after the memory
     if channel_messages is not None:
         channel_lines = format_channel_messages(
-            channel_messages, business.id, empty="- (none)"
+            channel_messages, business.id, names=seller_names, empty="- (none)"
         )
         memory_section += (
             f"Messages with other restaurant owners this round:\n{channel_lines}\n\n"
@@ -205,6 +207,7 @@ async def set_round_prices(
     retries: int = 3,
     memory: SellerMemory | None = None,
     channel_messages: list[ChannelMessage] | None = None,
+    seller_names: dict[str, str] | None = None,
 ) -> PricingResult:
     """Ask the seller for its price list and notes for `round_number` and return them.
 
@@ -229,6 +232,7 @@ async def set_round_prices(
                     context=context,
                     memory=memory,
                     channel_messages=channel_messages,
+                    seller_names=seller_names,
                 ),
                 PriceList,
             )
