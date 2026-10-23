@@ -98,6 +98,8 @@ async def _execute_run(
     run_config.experiment_name = spec.schema_name
     if run_config.budget is not None:
         run_config.budget.seed = spec.budget_seed
+    if run_config.undercover_informant is not None:
+        run_config.undercover_informant.seed = spec.budget_seed
     run_config.data = str(Path(run_config.data).resolve())
     (spec.folder / "input.yml").write_text(
         yaml.safe_dump(run_config.model_dump(), sort_keys=False)

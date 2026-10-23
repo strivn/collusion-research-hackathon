@@ -9,15 +9,25 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from magentic_marketplace.experiments.acted import run_acted
 from magentic_marketplace.experiments.experiment_runner import (
     load_experiment_config,
     run_experiment,
 )
 from magentic_marketplace.experiments.export_experiment import export_experiment
+from magentic_marketplace.experiments.exposure import run_exposure
 from magentic_marketplace.experiments.extract_agent_llm_traces import (
     run_extract_traces,
 )
+from magentic_marketplace.experiments.hand_labels import (
+    SAMPLE_SEED,
+    SAMPLE_SIZE,
+    run_label_check,
+    run_label_sample,
+)
+from magentic_marketplace.experiments.judge import run_judge
 from magentic_marketplace.experiments.list_experiments import list_experiments
+from magentic_marketplace.experiments.questioning import run_question
 from magentic_marketplace.experiments.round_scores import run_score
 from magentic_marketplace.experiments.run_analytics import run_analytics
 from magentic_marketplace.experiments.run_audit import run_audit
@@ -27,6 +37,7 @@ from magentic_marketplace.experiments.run_config import (
     save_run_config,
 )
 from magentic_marketplace.experiments.run_experiment import run_marketplace_experiment
+from magentic_marketplace.experiments.screen import run_screen, run_screen_calibrate
 from magentic_marketplace.experiments.utils import setup_logging
 from magentic_marketplace.ui import run_ui_server
 
@@ -155,6 +166,9 @@ def run_experiment_command(args):
             rounds=config.rounds if config is not None else 1,
             seller_pricing=config.seller_pricing if config is not None else False,
             seller_channel=config.seller_channel if config is not None else False,
+            undercover_informant=config.undercover_informant
+            if config is not None
+            else None,
         )
     )
 
@@ -199,6 +213,156 @@ def run_score_command(args):
     )
     print(f"Wrote {customer_path}")
     print(f"Wrote {seller_path}")
+
+
+def run_question_command(args):
+    """Handle the question subcommand."""
+    # The informants answer on the LLM configured in the env file, as the run's sellers did
+    load_dotenv(args.env_file)
+    path = asyncio.run(
+        run_question(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+            max_concurrency=args.max_concurrency,
+        )
+    )
+    print(f"Wrote {path}")
+
+
+def run_judge_command(args):
+    """Handle the judge subcommand."""
+    # The Anthropic key and any base URL come from the env file
+    load_dotenv(args.env_file)
+    agreements_path, labels_path = asyncio.run(
+        run_judge(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+            max_concurrency=args.max_concurrency,
+        )
+    )
+    print(f"Wrote {agreements_path}")
+    print(f"Wrote {labels_path}")
+
+
+def run_acted_command(args):
+    """Handle the acted subcommand."""
+    path = asyncio.run(
+        run_acted(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    print(f"Wrote {path}")
+
+
+def run_exposure_command(args):
+    """Handle the exposure subcommand."""
+    result = asyncio.run(
+        run_exposure(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    for name in result.missing:
+        print(f"Missing {name}, skipped")
+    print(f"Wrote {result.scores_path}")
+    print(f"Wrote {result.detection_path}")
+
+
+def run_label_sample_command(args):
+    """Handle the label-sample subcommand."""
+    path = asyncio.run(
+        run_label_sample(
+            [Path(folder) for folder in args.run_folders],
+            Path(args.out),
+            size=args.size,
+            seed=args.seed,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    print(f"Wrote {path}")
+
+
+def run_label_check_command(args):
+    """Handle the label-check subcommand.
+
+    Prints "Agreement: <a:.2f> (<matches> of <labelled> threads)", or "Agreement: none (0
+    threads labelled)"; then "Unlabelled: <thread id>" per blank thread, "Unknown seller
+    ids in <thread id>: <id>, ..." per thread with unknown ids, and "Wrote <path>".
+    """
+    check, path = run_label_check(Path(args.sample_file))
+
+    # Headline number, then what was left out, then the file
+    if check.agreement is None:
+        print("Agreement: none (0 threads labelled)")
+    else:
+        matches = sum(row.match for row in check.threads)
+        print(
+            f"Agreement: {check.agreement:.2f} ({matches} of {len(check.threads)} threads)"
+        )
+    for thread_id in check.blank:
+        print(f"Unlabelled: {thread_id}")
+    for thread_id, ids in check.unknown.items():
+        print(f"Unknown seller ids in {thread_id}: {', '.join(ids)}")
+    print(f"Wrote {path}")
+
+
+def run_screen_calibrate_command(args):
+    """Handle the screen-calibrate subcommand."""
+    path, calibration = asyncio.run(
+        run_screen_calibrate(
+            args.experiment_names,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    # Show each held-out rate, and warn when no step met the target
+    rates = ", ".join(
+        f"{name} {rate:.1%}" for name, rate in calibration.held_out_rates.items()
+    )
+    print(
+        f"Quantiles: level percentile {calibration.level_percentile}, "
+        f"gap percentile {calibration.gap_percentile}; held-out flag rates: {rates}"
+    )
+    if not calibration.target_met:
+        print(
+            f"WARNING: held-out flag rate above {calibration.target:.0%} "
+            f"even at the tightest quantiles: {rates}"
+        )
+    print(f"Wrote {path}")
+
+
+def run_screen_command(args):
+    """Handle the screen subcommand."""
+    seller_path, pair_path = asyncio.run(
+        run_screen(
+            args.experiment_name,
+            Path(args.calibration),
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    print(f"Wrote {seller_path}")
+    print(f"Wrote {pair_path}")
 
 
 def run_extract_traces_command(args):
@@ -431,6 +595,286 @@ def main():
         help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
     )
     score_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # question subcommand
+    question_parser = subparsers.add_parser(
+        "question",
+        help="Question every seller of a finished run about each round from 2; writes reports to the current directory",
+    )
+    question_parser.set_defaults(func=run_question_command)
+    question_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    question_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    question_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help=".env file with the LLM settings (default: .env)",
+    )
+    question_parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=8,
+        help="Most questions waiting on the LLM at once (default: 8)",
+    )
+    question_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    question_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    question_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # judge subcommand
+    judge_parser = subparsers.add_parser(
+        "judge",
+        help="Find price agreements in a finished run's channel messages with Opus 5.5; writes agreements and agreed labels to the current directory",
+    )
+    judge_parser.set_defaults(func=run_judge_command)
+    judge_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    judge_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    judge_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help=".env file with ANTHROPIC_API_KEY (default: .env)",
+    )
+    judge_parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=4,
+        help="Most rounds waiting on the judge at once (default: 4)",
+    )
+    judge_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    judge_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    judge_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # acted subcommand
+    acted_parser = subparsers.add_parser(
+        "acted",
+        help="Label which agreed sellers followed their agreement, from the judge's agreements in the current directory and the run's price lists; writes acted labels to the current directory",
+    )
+    acted_parser.set_defaults(func=run_acted_command)
+    acted_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    acted_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    acted_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    acted_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    acted_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # exposure subcommand
+    exposure_parser = subparsers.add_parser(
+        "exposure",
+        help="Score informant reports and the price screen against the agreed and acted labels in the current directory; writes exposure scores to the current directory",
+    )
+    exposure_parser.set_defaults(func=run_exposure_command)
+    exposure_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    exposure_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    exposure_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    exposure_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    exposure_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # label-sample subcommand
+    label_sample_parser = subparsers.add_parser(
+        "label-sample",
+        help="Draw a balanced sample of channel threads from judged run folders into one markdown file for hand labelling, without the judge's answers",
+    )
+    label_sample_parser.set_defaults(func=run_label_sample_command)
+    label_sample_parser.add_argument(
+        "run_folders",
+        nargs="+",
+        help="Judged run folders; each folder's name is its run name and Postgres schema",
+    )
+    label_sample_parser.add_argument(
+        "--out", required=True, help="Path of the sample file to write"
+    )
+    label_sample_parser.add_argument(
+        "--size",
+        type=int,
+        default=SAMPLE_SIZE,
+        help=f"Threads to draw (default: {SAMPLE_SIZE})",
+    )
+    label_sample_parser.add_argument(
+        "--seed",
+        type=int,
+        default=SAMPLE_SEED,
+        help=f"Seed for the draw, recorded in the file (default: {SAMPLE_SEED})",
+    )
+    label_sample_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read; sqlite reads <folder>/<folder name>.db (default: postgres)",
+    )
+    label_sample_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    label_sample_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    label_sample_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # label-check subcommand
+    label_check_parser = subparsers.add_parser(
+        "label-check",
+        help="Check the judge against a filled hand-label sample file; prints the agreement and writes one row per thread next to the file",
+    )
+    label_check_parser.set_defaults(func=run_label_check_command)
+    label_check_parser.add_argument(
+        "sample_file", help="Path of the filled sample file"
+    )
+
+    # screen-calibrate subcommand
+    screen_calibrate_parser = subparsers.add_parser(
+        "screen-calibrate",
+        help="Calibrate the price screen by leave-one-out on S2 runs (pricing on, channel off); writes the calibration to the current directory",
+    )
+    screen_calibrate_parser.set_defaults(func=run_screen_calibrate_command)
+    screen_calibrate_parser.add_argument(
+        "experiment_names",
+        nargs="+",
+        help="S2 runs: Postgres schema names, or SQLite file paths (at least 3)",
+    )
+    screen_calibrate_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    screen_calibrate_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    screen_calibrate_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    screen_calibrate_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # screen subcommand
+    screen_parser = subparsers.add_parser(
+        "screen",
+        help="Flag sellers of a run from prices alone with a screen calibration; writes seller flags and pair flags to the current directory",
+    )
+    screen_parser.set_defaults(func=run_screen_command)
+    screen_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    screen_parser.add_argument(
+        "--calibration",
+        required=True,
+        help="Path to the screen calibration written by screen-calibrate",
+    )
+    screen_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    screen_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    screen_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    screen_parser.add_argument(
         "--postgres-password",
         default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
         help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
