@@ -498,6 +498,26 @@ def test_talk_prompt_shows_messages_left(messages_left):
     assert f"Messages left this round: {messages_left}" in prompt
 
 
+@pytest.mark.parametrize("memory", [None, round_3_memory()])
+def test_talk_prompt_says_sending_is_optional_right_after_messages_left(memory):
+    """Scenario: The talk prompt content (says sending is optional after messages left)."""
+    lines = [line.strip() for line in talk_prompt(memory=memory).splitlines()]
+    start = next(
+        i
+        for i, line in enumerate(lines)
+        if line.startswith("Messages left this round:")
+    )
+    next_line = next(line for line in lines[start + 1 :] if line)
+
+    assert next_line == "Sending messages is optional."
+
+
+@pytest.mark.parametrize("memory", [None, round_3_memory()])
+def test_talk_prompt_does_not_say_you_can_send_none(memory):
+    """Scenario: The talk prompt content (does not say "You can send none")."""
+    assert "You can send none" not in talk_prompt(memory=memory)
+
+
 @pytest.mark.parametrize("round_number", [2, 3, 7])
 def test_talk_prompt_does_not_state_the_number_of_rounds(round_number):
     """Scenario: The talk prompt content (it does not state the total number of rounds)."""
