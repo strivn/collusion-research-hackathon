@@ -11,7 +11,8 @@ variant drops that persistence.
 
 The quantiles behind the thresholds are calibrated by leave-one-out on S2 runs: start at
 the 95th percentile for level and the 5th for gap, and tighten one percentile at a time
-until every held-out run has at most 5% of its seller-rounds flagged.
+until every held-out run has at most 5% of the seller-rounds that could be flagged
+flagged.
 
 The screen reads only order proposals and agent profiles; it never reads channel messages,
 notes or informant reports. Outputs go to the run folder; nothing is written to the run's
@@ -280,12 +281,30 @@ def screen_run(
     )
 
 
-def false_flag_rate(seller_flags: list[SellerFlag]) -> float:
-    """Return the share of seller-rounds flagged under the main (two-round) rule."""
-    # No seller-rounds means nothing flagged
-    if not seller_flags:
+def false_flag_rate(
+    seller_flags: list[SellerFlag], pair_flags: list[PairFlag]
+) -> float:
+    """Return the share of seller-rounds that could be flagged that are flagged (two-round rule).
+
+    A seller-round (i, r) could be flagged when seller i is in a pair row of round r and in
+    one of round r-1, i.e. its pair had both sellers' quotes in both rounds. Round 1 and
+    rounds with or after a missing quote are left out. No such seller-round gives 0.0.
+    """
+    # Seller-rounds whose pair was screened in this round and the one before
+    screened = {
+        (flag.round, seller_id)
+        for flag in pair_flags
+        for seller_id in (flag.seller_a, flag.seller_b)
+    }
+    eligible = [
+        flag
+        for flag in seller_flags
+        if (flag.round, flag.seller_id) in screened
+        and (flag.round - 1, flag.seller_id) in screened
+    ]
+    if not eligible:
         return 0.0
-    return sum(flag.flagged for flag in seller_flags) / len(seller_flags)
+    return sum(flag.flagged for flag in eligible) / len(eligible)
 
 
 def calibrate(runs: list[RunPrices]) -> Calibration:
@@ -312,8 +331,8 @@ def calibrate(runs: list[RunPrices]) -> Calibration:
         for run in runs:
             others = [other for other in runs if other is not run]
             thresholds = fit_thresholds(others, level_percentile, gap_percentile)
-            seller_flags, _ = screen_run(run, thresholds)
-            held_out_rates[run.name] = false_flag_rate(seller_flags)
+            seller_flags, pair_flags = screen_run(run, thresholds)
+            held_out_rates[run.name] = false_flag_rate(seller_flags, pair_flags)
         target_met = all(rate <= FALSE_FLAG_TARGET for rate in held_out_rates.values())
         if target_met:
             break
