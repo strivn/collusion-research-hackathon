@@ -98,7 +98,8 @@ def _format_memory(memory: SellerMemory) -> str:
     ]
     if rival_lines:
         sections.append(
-            "Other restaurants' prices in the previous round:\n" + "\n".join(rival_lines)
+            "Other restaurants' prices in the previous round:\n"
+            + "\n".join(rival_lines)
         )
 
     # The notes are the seller's only memory
