@@ -157,13 +157,10 @@ Logs: every action and LLM call is a JSONB row in the schema's `agents`, `action
   and the forced `tool_choice` used for structured output, so they need a client patch.
 - Each `llm_call` log row holds `input_tokens` and `output_tokens` (since #13) next to
   the combined `token_count`.
-- Anthropic rate limits are per organization and per model, counted per minute (token
-  bucket). Our org is on the Start tier: `claude-haiku-5-5` allows 1,000 requests,
-  2,000,000 input tokens and 400,000 output tokens per minute (measured 2026-10-23).
-  Cache reads do not count toward input tokens. On 2026-10-23 around 10:00 UTC our runs
-  went almost 100% over the Haiku 5.5 input-token limit and hit 429s. One `mexican_10_30`
-  run with talk peaked at 1.14M input tokens per minute, so two in parallel exceed the
-  limit. Before launching parallel runs, check the headroom and size the parallelism:
+- Rate limit for `claude-haiku-5-5`: 2M input tokens, 400K output tokens and 1,000
+  requests per minute, per organization. One `mexican_10_30` run with talk peaks at about
+  1.14M input tokens per minute, so two such runs in parallel go over. Cache reads do not
+  count. Check headroom before launching parallel runs:
   - Every API response carries `anthropic-ratelimit-{requests,input-tokens,output-tokens}-{limit,remaining,reset}`
     headers (read them with `client.messages.with_raw_response.create(...)`).
   - Tokens per minute of a run: `select date_trunc('minute', created_at) m,
