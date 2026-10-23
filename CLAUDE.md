@@ -15,11 +15,34 @@ simulated market), with our own patches.
 - Links inside the code and `docs/` (e.g. the `pr-comments` poe task, docs URLs) point
   at Microsoft repos. Do not run them.
 - Branches: `main` is frozen at `9a651c7`, the unmodified stock code. `develop` is the
-  trunk and default branch.
-- `docs/` is upstream's documentation. Our research docs live in `research/`, which is
-  excluded via `.git/info/exclude` and never committed. Read `research/` before changing
-  agent behaviour.
-- CI workflows (`.github/workflows/test.yml` etc.) trigger on `main` only.
+  trunk and default branch. No branch protection is possible on this private free-plan
+  repo: never force-push, delete or commit directly to either.
+- Every new feature sits behind a setting whose default reproduces stock behaviour, so a
+  run with all new features off still matches `main`.
+
+## Working area
+
+| Area | Path | In git |
+|---|---|---|
+| Upstream code we patch | `packages/`, `data/` | yes |
+| Upstream documentation | `docs/` | yes, left untouched |
+| Our experiment code (runner, analysis, plots) | `experiments/collusion/` | yes, code only |
+| Our datasets | `data/<name>/` | yes |
+| Research notes, tracker, run outputs | `research/` (run outputs in `research/results/<run>/`) | no, excluded via `.git/info/exclude` |
+| Local agent context | `CLAUDE.local.md`, `.claude/` | no |
+| Secrets | `.env` | no; never read it |
+| Throwaway files | the session scratchpad, outside the repo | n/a |
+
+- Run every `magentic-marketplace` command from its run folder,
+  `research/results/<run>/`, with `--env-file` pointing at the repo `.env`. The CLI and
+  the database code write metrics, analytics and traces into the current directory.
+- No new top-level files or folders without asking Ivan.
+- Clean check: `git status --short --ignored` at the repo root lists only `.claude/`,
+  `.env`, `.remember/`, `.venv/`, `CLAUDE.local.md`, `research/`, `__pycache__/` and
+  `node_modules/` entries. Anything else is a stray file: move it to its run folder or
+  delete it.
+- `.gitignore` ignores every `*.json`. A JSON file that belongs in git needs `git add -f`
+  and a mention in the PR.
 
 ## Commands
 
