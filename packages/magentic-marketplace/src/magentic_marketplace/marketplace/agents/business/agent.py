@@ -16,6 +16,7 @@ from ...shared.models import Business, BusinessAgentProfile
 from ..base import BaseSimpleMarketplaceAgent
 from ..proposal_storage import OrderProposalStorage
 from .models import BusinessSummary
+from .pricing import PriceListLog, set_round_prices
 from .responses import ResponseHandler
 
 
@@ -198,7 +199,26 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         """Handle when the business agent starts."""
         # Set this round's price list before serving any customer
         if self._seller_pricing:
-            raise NotImplementedError("pricing step in BusinessAgent.on_started")
+            if self.round_number == 1:
+                # Round 1 is the seed round: menu prices, no pricing call
+                round_prices = dict(self.business.menu_features)
+                self.logger.info(
+                    "Prices for round 1",
+                    data=PriceListLog(
+                        seller_id=self.business.id, round=1, prices=round_prices
+                    ),
+                )
+            else:
+                round_prices = await set_round_prices(
+                    self.business,
+                    current_prices=self._current_prices
+                    or dict(self.business.menu_features),
+                    round_number=self.round_number,
+                    generate_struct_fn=self.generate_struct,
+                    logger=self.logger,
+                )
+            self.round_prices = round_prices
+            self._responses.round_prices = round_prices
 
         self.logger.info("Ready for customers")
 

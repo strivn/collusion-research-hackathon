@@ -112,12 +112,10 @@ async def run_marketplace_experiment(
             f"Marketplace experiment started:\nbusinesses={len(businesses)}\ncustomers={len(customers)}\ndata_dir={data_dir}\nexperiment_name:{experiment_name}",
         )
 
-        # Let sellers set their own prices
-        if seller_pricing:
-            raise NotImplementedError("seller_pricing in run_marketplace_experiment")
-
         # Run every round with fresh agents; a round starts after the previous one is fully done
         messages_floor: int | None = None
+        # Each seller's price list from the previous round; None in round 1
+        last_prices: dict[str, dict[str, float] | None] = {}
         async with AgentLauncher(marketplace_launcher.server_url) as agent_launcher:
             for round_number in range(1, rounds + 1):
                 business_agents = [
@@ -126,6 +124,8 @@ async def run_marketplace_experiment(
                         marketplace_launcher.server_url,
                         round_number=round_number,
                         messages_after_index=messages_floor,
+                        seller_pricing=seller_pricing,
+                        current_prices=last_prices.get(business.id),
                     )
                     for business in businesses
                 ]
@@ -152,6 +152,11 @@ async def run_marketplace_experiment(
                 except KeyboardInterrupt:
                     logger.warning("Simulation interrupted by user")
                     break
+
+                # Carry each seller's prices into the next round
+                last_prices = {
+                    agent.business.id: agent.round_prices for agent in business_agents
+                }
 
                 # Only a following round needs the floor, so a one-round run stays stock
                 if round_number < rounds:

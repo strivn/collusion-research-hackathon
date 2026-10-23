@@ -112,9 +112,15 @@ class ResponseHandler:
 
                 # Every unit price must be this round's price
                 if self.round_prices is not None:
-                    raise NotImplementedError(
-                        "round price check in proposal validation"
-                    )
+                    for order_item in proposal.items:
+                        round_price = self.round_prices.get(order_item.item_name)
+                        if (
+                            round_price is not None
+                            and abs(order_item.unit_price - round_price) >= 0.005
+                        ):
+                            validation_errors.append(
+                                f"unit price ${order_item.unit_price:.2f} for '{order_item.item_name}' does not match your current price of ${round_price:.2f}."
+                            )
 
                 if abs(total_price - proposal.total_price) >= 0.01:
                     validation_errors.append(
