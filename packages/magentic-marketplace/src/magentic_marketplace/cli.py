@@ -9,6 +9,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from magentic_marketplace.experiments.acted import run_acted
 from magentic_marketplace.experiments.experiment_runner import (
     load_experiment_config,
     run_experiment,
@@ -239,6 +240,20 @@ def run_judge_command(args):
     )
     print(f"Wrote {agreements_path}")
     print(f"Wrote {labels_path}")
+
+
+def run_acted_command(args):
+    """Handle the acted subcommand."""
+    path = asyncio.run(
+        run_acted(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+        )
+    )
+    print(f"Wrote {path}")
 
 
 def run_extract_traces_command(args):
@@ -557,6 +572,38 @@ def main():
         help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
     )
     judge_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # acted subcommand
+    acted_parser = subparsers.add_parser(
+        "acted",
+        help="Label which agreed sellers followed their agreement, from the judge's agreements in the current directory and the run's price lists; writes acted labels to the current directory",
+    )
+    acted_parser.set_defaults(func=run_acted_command)
+    acted_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    acted_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    acted_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    acted_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    acted_parser.add_argument(
         "--postgres-password",
         default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
         help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
