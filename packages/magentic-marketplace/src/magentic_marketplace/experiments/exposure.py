@@ -354,8 +354,13 @@ def score_round(
         quotes = grounded = authored = 0
         for accusation in accusations:
             for quote in accusation.quotes:
+                # An empty quote is in every text, so it is never grounded
                 needle = normalise(quote)
-                found = [post for post in round_posts if needle in normalise(post.text)]
+                found = [
+                    post
+                    for post in round_posts
+                    if needle and needle in normalise(post.text)
+                ]
                 quotes += 1
                 grounded += bool(found)
                 authored += any(post.sender == accusation.seller_id for post in found)
