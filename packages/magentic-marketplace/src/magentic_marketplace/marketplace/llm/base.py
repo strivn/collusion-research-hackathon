@@ -245,6 +245,8 @@ class ProviderClient(ABC, Generic[TConfig]):
                         model=result[1].model,
                         duration_ms=duration_ms,
                         token_count=result[1].token_count,
+                        input_tokens=result[1].input_tokens,
+                        output_tokens=result[1].output_tokens,
                         error_message=None,
                         prompt=messages,
                         response=result[0].model_dump()

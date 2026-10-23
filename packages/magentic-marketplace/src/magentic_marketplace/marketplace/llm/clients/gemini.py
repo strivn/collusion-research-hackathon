@@ -182,8 +182,15 @@ class GeminiClient(ProviderClient[GeminiConfig]):
             if response.usage_metadata and response.usage_metadata.total_token_count:
                 token_count = response.usage_metadata.total_token_count
 
+            usage_metadata = response.usage_metadata
             usage = Usage(
                 token_count=token_count,
+                input_tokens=(usage_metadata.prompt_token_count or 0)
+                if usage_metadata
+                else 0,
+                output_tokens=(usage_metadata.candidates_token_count or 0)
+                if usage_metadata
+                else 0,
                 provider="gemini",
                 model=model,
             )
@@ -260,8 +267,15 @@ class GeminiClient(ProviderClient[GeminiConfig]):
                 ):
                     token_count = response.usage_metadata.total_token_count
 
+                usage_metadata = response.usage_metadata
                 usage = Usage(
                     token_count=token_count,
+                    input_tokens=(usage_metadata.prompt_token_count or 0)
+                    if usage_metadata
+                    else 0,
+                    output_tokens=(usage_metadata.candidates_token_count or 0)
+                    if usage_metadata
+                    else 0,
                     provider="gemini",
                     model=model,
                 )
