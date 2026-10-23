@@ -150,6 +150,7 @@ def run_experiment_command(args):
             budget=config.budget if config is not None else None,
             rounds=config.rounds if config is not None else 1,
             seller_pricing=config.seller_pricing if config is not None else False,
+            seller_channel=config.seller_channel if config is not None else False,
         )
     )
 
