@@ -27,7 +27,7 @@ Run from the repo root. Python >=3.11, managed by `uv` workspace (member:
 `packages/magentic-marketplace`).
 
 ```bash
-uv sync --all-extras              # install (rnr extra pulls torch/sentence-transformers)
+uv sync                           # install; add --all-extras only for rnr search (torch)
 cp sample.env .env                # LLM provider/model/keys + Postgres creds
 docker compose up -d              # Postgres 16 on :5432 (+ pgadmin on :8080); required for runs
 
@@ -95,6 +95,16 @@ wraps send/fetch and LLM calls (`generate`, `generate_struct`) and logs each cal
   reply or `OrderProposal` (`business/responses.py`, prompts in `business/prompts.py`),
   confirms payments against its `OrderProposalStorage`. Keeps one history per customer;
   it never sees its other conversations. Stock sellers only reply, never initiate.
+  Proposal validation (`responses.py`) checks only that item names are on the menu and
+  that `total_price` equals the sum of the items, retrying up to 3 times. Unit prices are
+  not checked against the menu; only the prompt line "ONLY tell potential customers what
+  you have on the menu with CORRECT PRICES" keeps them there.
+- Sellers often reply with a proposal and no text message, putting their whole answer
+  (amenities included) in the proposal's `special_instructions`. Query both message types
+  when reading what a seller said.
+- The customer prompt re-renders the full action trajectory every step
+  (`customer/prompts.py`), so prompt size grows with steps. Each business call sees the
+  full history with that one customer.
 
 LLM (`P/marketplace/llm/`): provider and model come from env (`LLM_PROVIDER`
 openai|gemini|anthropic, `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_MAX_CONCURRENCY`) via
@@ -112,3 +122,22 @@ but no code reads it.
 
 Logs: every action and LLM call is a JSONB row in the schema's `agents`, `actions` and
 `logs` tables. Messages are fetched in `row_index` order.
+
+## Gotchas
+
+- `docker compose` needs `.env` (it is the `env_file` for both services), not just the CLI.
+  Do not read `.env`; it holds API keys.
+- Anthropic client (`llm/clients/anthropic.py`) with current models: `claude-haiku-5-5`
+  returns 400 on a non-default `temperature`, so leave `LLM_TEMPERATURE` unset.
+  `LLM_REASONING_EFFORT=minimal` sends `thinking: {type: "disabled"}`, which Haiku 5.5
+  accepts at its default effort. Opus 5.5 and Sonnet 5.5 reject both disabled thinking
+  and the forced `tool_choice` used for structured output, so they need a client patch.
+- The `logs` table stores one combined token count per LLM call (input + output), so
+  spend can only be bounded, not computed, without patching the clients.
+- `analyze` and `extract-traces` write `analytics_results_<name>.json` and
+  `<name>-agent-llm-traces/` into the current directory. Run them from a scratch dir.
+- `ui` defaults to port 5000, which macOS AirPlay Receiver usually holds; pass `--ui-port`.
+- Inspect a run directly: `docker compose exec -T postgres psql -U postgres -d marketplace`,
+  then query `<schema>.actions` (message under `data->'request'->'parameters'->'message'`)
+  and `<schema>.logs` (`data->'data'->>'type' = 'llm_call'`, with `prompt`, `response`,
+  `token_count`, `duration_ms`).
