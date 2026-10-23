@@ -46,3 +46,14 @@ class BusinessSummary(BaseModel):
     pending_proposals: int = Field(description="Number of pending proposals")
     confirmed_orders: int = Field(description="Number of confirmed orders")
     delivery_available: bool = Field(description="Whether delivery is available")
+
+
+class ChannelMessageLog(BaseModel):
+    """Log entry for one delivered channel message, one per recipient."""
+
+    type: Literal["channel_message"] = "channel_message"
+    sender: str
+    recipient: str
+    round: int
+    turn: int
+    text: str

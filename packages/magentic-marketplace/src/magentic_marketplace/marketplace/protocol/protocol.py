@@ -10,10 +10,13 @@ from magentic_marketplace.platform.shared.models import (
 
 from ..actions import (
     ActionAdapter,
+    FetchChannelMessages,
     FetchMessages,
     Search,
+    SendChannelMessage,
     SendMessage,
 )
+from .channel import execute_fetch_channel_messages, execute_send_channel_message
 from .fetch_messages import execute_fetch_messages
 from .search import execute_search
 from .send_message import execute_send_message
@@ -27,7 +30,13 @@ class SimpleMarketplaceProtocol(BaseMarketplaceProtocol):
 
     def get_actions(self):
         """Define available actions in the marketplace."""
-        return [SendMessage, FetchMessages, Search]
+        return [
+            SendMessage,
+            FetchMessages,
+            Search,
+            SendChannelMessage,
+            FetchChannelMessages,
+        ]
 
     async def initialize(self, database: BaseDatabaseController) -> None:
         """Initialize SimpleMarketplace-specific database indexes.
@@ -96,6 +105,16 @@ CREATE INDEX IF NOT EXISTS actions_fetch_messages_idx
 
         elif isinstance(parsed_action, FetchMessages):
             return await execute_fetch_messages(parsed_action, agent, database)
+
+        elif isinstance(parsed_action, SendChannelMessage):
+            return await execute_send_channel_message(
+                parsed_action, agent, action.metadata, database
+            )
+
+        elif isinstance(parsed_action, FetchChannelMessages):
+            return await execute_fetch_channel_messages(
+                parsed_action, agent, action.metadata, database
+            )
 
         elif isinstance(parsed_action, Search):
             return await execute_search(

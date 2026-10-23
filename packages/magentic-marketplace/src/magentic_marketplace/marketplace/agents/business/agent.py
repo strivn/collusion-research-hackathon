@@ -4,18 +4,23 @@ import asyncio
 from collections import defaultdict
 from typing import Literal
 
+from magentic_marketplace.platform.shared.models import ActionExecutionResult
+
 from ...actions import (
+    FetchChannelMessages,
+    FetchChannelMessagesResponse,
     Message,
     OrderProposal,
     Payment,
     ReceivedMessage,
+    SendChannelMessage,
     TextMessage,
 )
 from ...llm.config import BaseLLMConfig
 from ...shared.models import Business, BusinessAgentProfile
 from ..base import BaseSimpleMarketplaceAgent
 from ..proposal_storage import OrderProposalStorage
-from .models import BusinessSummary
+from .models import BusinessSummary, ChannelMessageLog
 from .pricing import PriceListLog, SellerMemory, set_round_prices
 from .responses import ResponseHandler
 
@@ -199,6 +204,36 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             await asyncio.sleep(self._polling_interval)
         else:
             await asyncio.sleep(0)
+
+    async def send_channel_message(
+        self, to_seller_ids: list[str], content: str, turn: int
+    ) -> ActionExecutionResult:
+        """Send `content` to other sellers on the channel; logs one ChannelMessageLog per recipient."""
+        # Execute through execute_action so the round tag is attached
+        result = await self.execute_action(
+            SendChannelMessage(to_seller_ids=to_seller_ids, content=content, turn=turn)
+        )
+
+        # Log each delivered message for the relay and the ground-truth judge
+        if not result.is_error:
+            for recipient in to_seller_ids:
+                entry = ChannelMessageLog(
+                    sender=self.id,
+                    recipient=recipient,
+                    round=self.round_number,
+                    turn=turn,
+                    text=content,
+                )
+                self.logger.info(
+                    f"Channel message to {recipient} in round {self.round_number}",
+                    data=entry,
+                )
+        return result
+
+    async def fetch_channel_messages(self) -> FetchChannelMessagesResponse:
+        """Fetch this round's channel messages to and from this seller, and its messages left."""
+        result = await self.execute_action(FetchChannelMessages())
+        return FetchChannelMessagesResponse.model_validate(result.content)
 
     async def on_started(self):
         """Handle when the business agent starts."""

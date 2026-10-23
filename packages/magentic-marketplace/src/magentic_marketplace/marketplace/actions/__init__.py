@@ -1,14 +1,19 @@
 """Simple marketplace actions."""
 
 from .actions import (
+    CHANNEL_ALLOWANCE,
     Action,
     ActionAdapter,
+    ChannelMessage,
+    FetchChannelMessages,
+    FetchChannelMessagesResponse,
     FetchMessages,
     FetchMessagesResponse,
     ReceivedMessage,
     Search,
     SearchAlgorithm,
     SearchResponse,
+    SendChannelMessage,
     SendMessage,
 )
 from .messaging import (
@@ -21,7 +26,12 @@ from .messaging import (
 )
 
 __all__ = [
+    "CHANNEL_ALLOWANCE",
     "Action",
+    "ChannelMessage",
+    "FetchChannelMessages",
+    "FetchChannelMessagesResponse",
+    "SendChannelMessage",
     "ActionAdapter",
     "FetchMessages",
     "FetchMessagesResponse",
