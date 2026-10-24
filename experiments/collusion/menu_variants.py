@@ -24,24 +24,71 @@ the whole write before anything is written.
 
 import argparse
 import random
+import shutil
 from pathlib import Path
+
+import yaml
 
 
 def demanded_items(customers_dir: Path) -> set[str]:
     """Return every item name some customer in `customers_dir` asks for."""
-    raise NotImplementedError
+    # Union the menu_features keys over every customer file
+    demanded: set[str] = set()
+    for path in sorted(customers_dir.glob("*.yaml")):
+        customer = yaml.safe_load(path.read_text())
+        demanded.update(customer["menu_features"])
+    return demanded
 
 
 def trim_menu(
     menu: dict[str, float], demanded: set[str], extra: int, rng: random.Random
 ) -> dict[str, float]:
     """Return `menu` with only demanded items plus `extra` others drawn from `rng`."""
-    raise NotImplementedError
+    # Draw extras from the sorted other names, so the draw depends only on the seed
+    others = sorted(item for item in menu if item not in demanded)
+    kept = set(rng.sample(others, min(extra, len(others))))
+    # Keep the menu's original order and prices
+    return {
+        item: price for item, price in menu.items() if item in demanded or item in kept
+    }
 
 
 def write_variant(src: Path, dst: Path, extra: int, seed: int) -> None:
     """Copy the dataset at `src` to `dst` with every seller's menu trimmed."""
-    raise NotImplementedError
+    # Refuse an existing folder so a variant never mixes with older files
+    if dst.exists():
+        raise FileExistsError(f"destination folder already exists: {dst}")
+
+    # Trim every business first, in sorted file order with one rng, before writing
+    demanded = demanded_items(src / "customers")
+    rng = random.Random(seed)
+    trimmed: dict[str, dict] = {}
+    for path in sorted((src / "businesses").glob("*.yaml")):
+        business = yaml.safe_load(path.read_text())
+        business["menu_features"] = trim_menu(
+            business["menu_features"], demanded, extra, rng
+        )
+        if not business["menu_features"]:
+            raise ValueError(
+                f"{business.get('id', path.stem)} would have no menu items"
+            )
+        trimmed[path.name] = business
+
+    # Copy everything except the businesses folder byte-for-byte
+    dst.mkdir(parents=True)
+    for entry in sorted(src.iterdir()):
+        if entry.name == "businesses":
+            continue
+        if entry.is_dir():
+            shutil.copytree(entry, dst / entry.name)
+        else:
+            shutil.copy2(entry, dst / entry.name)
+
+    # Write each business with only menu_features changed
+    (dst / "businesses").mkdir()
+    for name, business in trimmed.items():
+        text = yaml.safe_dump(business, sort_keys=False, allow_unicode=True)
+        (dst / "businesses" / name).write_text(text)
 
 
 def main(argv: list[str] | None = None) -> None:
