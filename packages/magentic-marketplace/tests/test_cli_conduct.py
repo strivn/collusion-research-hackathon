@@ -333,9 +333,15 @@ def read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
 
 
 def files_besides_the_database(run_folder: Path) -> list[str]:
-    """Return the names of the run folder's files, leaving out run.db and its SQLite journals."""
+    """Return the names of the run folder's files, leaving out the database's own files.
+
+    Those are run.db, its SQLite journals and run_metrics.json, which the SQLite
+    controller writes when the test closes the database.
+    """
     return sorted(
-        path.name for path in run_folder.iterdir() if not path.name.startswith("run.db")
+        path.name
+        for path in run_folder.iterdir()
+        if not path.name.startswith(("run.db", "run_metrics"))
     )
 
 
