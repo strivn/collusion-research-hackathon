@@ -58,9 +58,11 @@ def load_experiment_config(path: Path) -> ExperimentConfig:
 
 
 def plan_runs(config: ExperimentConfig) -> list[RunSpec]:
-    """List every repetition x arm, repetition first, with its folder, schema and budget seed."""
-    # Repetition i has the same seed in every arm, so arms are paired; listing a repetition's
-    # arms together makes the paired runs start, and run under the cap, side by side
+    """List every repetition x arm, repetition first, with its folder, schema, seeds and position."""
+    # Repetition i has the same budget seed in every arm, so arms are paired; listing a
+    # repetition's arms together makes the paired runs start, and run under the cap, side by
+    # side. The informant seed is fixed, and repetition i plants the seller at position i - 1 of
+    # its shuffle, so repetitions plant different sellers
     return [
         RunSpec(
             arm=arm,
@@ -69,8 +71,8 @@ def plan_runs(config: ExperimentConfig) -> list[RunSpec]:
             schema_name=f"{config.name}_{arm}_rep{i}",
             folder=Path(config.results_dir) / config.name / f"{arm}_rep{i}",
             budget_seed=config.base_seed + i - 1,
-            informant_seed=config.base_seed + i - 1,
-            informant_position=0,
+            informant_seed=config.base_seed,
+            informant_position=i - 1,
         )
         for i in range(1, config.repetitions + 1)
         for arm in config.arms
@@ -96,14 +98,15 @@ async def _execute_run(
     spec: RunSpec, run_config_path: Path, env_file: Path
 ) -> RunOutcome:
     """Write the run's input.yml, then run and score it in its folder."""
-    # Give the run its own schema and seed, and an absolute data path
+    # Give the run its own schema, seeds and informant position, and an absolute data path
     spec.folder.mkdir(parents=True, exist_ok=True)
     run_config = load_run_config(run_config_path)
     run_config.experiment_name = spec.schema_name
     if run_config.budget is not None:
         run_config.budget.seed = spec.budget_seed
     if run_config.undercover_informant is not None:
-        run_config.undercover_informant.seed = spec.budget_seed
+        run_config.undercover_informant.seed = spec.informant_seed
+        run_config.undercover_informant.position = spec.informant_position
     run_config.data = str(Path(run_config.data).resolve())
     (spec.folder / "input.yml").write_text(
         yaml.safe_dump(run_config.model_dump(), sort_keys=False)

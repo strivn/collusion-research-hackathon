@@ -21,10 +21,10 @@ def pick_undercover_seller(seller_ids: list[str], seed: int, position: int = 0) 
 
     The same ids, seed and position give the same seller in any order of `seller_ids`.
     """
-    if position != 0:
-        raise NotImplementedError("pick by position")
-    # Sort first so the pick does not depend on the order of `seller_ids`
-    return random.Random(seed).choice(sorted(seller_ids))
+    # Sort first so the shuffle does not depend on the order of `seller_ids`
+    shuffled = sorted(seller_ids)
+    random.Random(seed).shuffle(shuffled)
+    return shuffled[position % len(shuffled)]
 
 
 def save_undercover_pick(pick: UndercoverPick, run_folder: Path) -> Path:
