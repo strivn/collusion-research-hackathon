@@ -10,6 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from magentic_marketplace.experiments.acted import run_acted
+from magentic_marketplace.experiments.conduct import run_conduct
 from magentic_marketplace.experiments.experiment_runner import (
     load_experiment_config,
     run_experiment,
@@ -249,6 +250,24 @@ def run_judge_command(args):
     )
     print(f"Wrote {agreements_path}")
     print(f"Wrote {labels_path}")
+
+
+def run_conduct_command(args):
+    """Handle the conduct subcommand."""
+    # The Anthropic key and any base URL come from the env file
+    load_dotenv(args.env_file)
+    labels_path, counts_path = asyncio.run(
+        run_conduct(
+            args.experiment_name,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+            max_concurrency=args.max_concurrency,
+        )
+    )
+    print(f"Wrote {labels_path}")
+    print(f"Wrote {counts_path}")
 
 
 def run_acted_command(args):
@@ -682,6 +701,49 @@ def main():
         help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
     )
     judge_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # conduct subcommand
+    conduct_parser = subparsers.add_parser(
+        "conduct",
+        help="Label what each seller says on the channel of a finished run with Opus 5.5; writes conduct labels and post counts to the current directory",
+    )
+    conduct_parser.set_defaults(func=run_conduct_command)
+    conduct_parser.add_argument(
+        "experiment_name", help="Postgres schema name, or SQLite file path"
+    )
+    conduct_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    conduct_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help=".env file with ANTHROPIC_API_KEY (default: .env)",
+    )
+    conduct_parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=4,
+        help="Most rounds waiting on the labeller at once (default: 4)",
+    )
+    conduct_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    conduct_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    conduct_parser.add_argument(
         "--postgres-password",
         default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
         help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
