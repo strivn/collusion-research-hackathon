@@ -93,7 +93,9 @@ def write_variant(src: Path, dst: Path, extra: int, seed: int) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """Parse the command line and write the variant."""
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(
+        description="Write a copy of a dataset with demanded-only seller menus."
+    )
     parser.add_argument("src", type=Path, help="source data dir")
     parser.add_argument("dst", type=Path, help="destination data dir; must not exist")
     parser.add_argument(
