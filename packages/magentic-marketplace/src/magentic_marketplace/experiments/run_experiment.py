@@ -24,6 +24,10 @@ from magentic_marketplace.experiments.utils import (
     load_customers_from_yaml,
 )
 from magentic_marketplace.marketplace.agents import BusinessAgent, CustomerAgent
+from magentic_marketplace.marketplace.agents.business.informant import (
+    UNDERCOVER_INSTRUCTION,
+    PromptAddition,
+)
 from magentic_marketplace.marketplace.agents.business.pricing import SellerMemory
 from magentic_marketplace.marketplace.agents.business.talk import TalkPhase
 from magentic_marketplace.marketplace.agents.round_gate import RoundGate
@@ -70,11 +74,14 @@ async def run_marketplace_experiment(
     seller_channel: bool = False,
     undercover_informant: UndercoverConfig | None = None,
     positive_control: bool = False,
+    prompt_additions: list[PromptAddition] | None = None,
 ):
     """Run a marketplace experiment using YAML configuration files.
 
     `positive_control` opens the talk and pricing prompts of every seller except the
-    undercover one with COORDINATION_INSTRUCTION.
+    undercover one with COORDINATION_INSTRUCTION. Every seller of every round gets
+    `prompt_additions`; the undercover seller's prompts open with
+    `undercover_informant.instruction` when set, UNDERCOVER_INSTRUCTION otherwise.
     """
     # Load businesses and customers from YAML files
     data_dir = Path(data_dir)
@@ -101,6 +108,14 @@ async def run_marketplace_experiment(
             ),
             Path.cwd(),
         )
+
+    # Use the configured undercover instruction, the default when unset
+    undercover_instruction = (
+        undercover_informant.instruction
+        if undercover_informant is not None
+        and undercover_informant.instruction is not None
+        else UNDERCOVER_INSTRUCTION
+    )
 
     # Assign customer budgets and record them in the run folder
     assignments: list[CustomerBudget] = []
@@ -198,6 +213,8 @@ async def run_marketplace_experiment(
                         # Instruct every seller of a positive control but the undercover one
                         coordination=positive_control
                         and business.id != undercover_seller_id,
+                        undercover_instruction=undercover_instruction,
+                        prompt_additions=prompt_additions,
                     )
                     for business in businesses
                 ]

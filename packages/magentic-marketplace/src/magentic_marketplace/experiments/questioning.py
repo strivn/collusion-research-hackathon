@@ -20,6 +20,10 @@ from magentic_marketplace.experiments.informant import (
     INFORMANT_FILENAME,
     UndercoverPick,
 )
+from magentic_marketplace.experiments.run_config import (
+    RUN_CONFIG_FILENAME,
+    load_run_config,
+)
 from magentic_marketplace.marketplace.agents.business.informant import (
     PRESSURE_QUESTION,
     REPORT_REQUEST,
@@ -153,19 +157,37 @@ def load_undercover_pick(run_folder: Path) -> UndercoverPick | None:
     return UndercoverPick.model_validate(yaml.safe_load(path.read_text()))
 
 
+def load_undercover_instruction(run_folder: Path) -> str:
+    """Return the undercover instruction the run used.
+
+    The `undercover_informant.instruction` of `run_folder`/config.yml when set;
+    UNDERCOVER_INSTRUCTION when it is unset or the folder has no config.yml.
+    """
+    # Read the instruction from the run's config.yml when it has one
+    path = run_folder / RUN_CONFIG_FILENAME
+    if path.exists():
+        informant = load_run_config(path).undercover_informant
+        if informant is not None and informant.instruction is not None:
+            return informant.instruction
+    return UNDERCOVER_INSTRUCTION
+
+
 def format_question(
-    view: RoundView, framing: Framing, context: str | None = None
+    view: RoundView,
+    framing: Framing,
+    context: str | None = None,
+    undercover_instruction: str = UNDERCOVER_INSTRUCTION,
 ) -> str:
     """Return the question for one seller about one round.
 
-    Layout, parts separated by a blank line: UNDERCOVER_INSTRUCTION (undercover) or
+    Layout, parts separated by a blank line: `undercover_instruction` (undercover) or
     PRESSURE_QUESTION (pressured); "What you saw in round <r>: the prompt you were given
     to set your prices, and your answer." then "Prompt:" and `view.prompt`, then
     "Your answer:" and `view.response`; REPORT_REQUEST; on a retry, `context`.
     """
     # Framing first, then the seller's own view, then the ask, then any sent-back problems
     parts = [
-        UNDERCOVER_INSTRUCTION if framing == "undercover" else PRESSURE_QUESTION,
+        undercover_instruction if framing == "undercover" else PRESSURE_QUESTION,
         f"What you saw in round {view.round}: the prompt you were given to set your prices, and your answer.",
         f"Prompt:\n{view.prompt}",
         f"Your answer:\n{view.response}",
@@ -201,6 +223,7 @@ async def question_seller(
     seller_ids: set[str],
     generate_struct_fn: Callable[[str, type], Awaitable[tuple[Any, Any]]],
     retries: int = 3,
+    undercover_instruction: str = UNDERCOVER_INSTRUCTION,
 ) -> InformantReport:
     """Question one seller about one round and return its checked report.
 
@@ -210,7 +233,9 @@ async def question_seller(
     the rest as dropped.
     """
     # Ask until the answer has no problems, feeding the problems back each retry
-    first_question = format_question(view, framing)
+    first_question = format_question(
+        view, framing, undercover_instruction=undercover_instruction
+    )
     question = first_question
     answer: InformantAnswer | None = None
     error: str | None = None
@@ -230,6 +255,7 @@ async def question_seller(
             view,
             framing,
             context=SENT_BACK_HEADER + "\n- " + "\n- ".join(problems),
+            undercover_instruction=undercover_instruction,
         )
 
     if answer is None:
@@ -274,10 +300,12 @@ async def question_sellers(
     generate_struct_fn: Callable[[str, type], Awaitable[tuple[Any, Any]]],
     max_concurrency: int = 8,
     retries: int = 3,
+    undercover_instruction: str = UNDERCOVER_INSTRUCTION,
 ) -> list[InformantReport]:
     """Question every view, at most `max_concurrency` at once, one report per view.
 
-    The seller `undercover_seller_id` is questioned undercover, every other pressured.
+    The seller `undercover_seller_id` is questioned undercover, framed by
+    `undercover_instruction`, every other pressured.
     """
     # The semaphore caps the questions waiting on the LLM
     semaphore = asyncio.Semaphore(max_concurrency)
@@ -288,7 +316,12 @@ async def question_sellers(
         )
         async with semaphore:
             return await question_seller(
-                view, framing, seller_ids, generate_struct_fn, retries=retries
+                view,
+                framing,
+                seller_ids,
+                generate_struct_fn,
+                retries=retries,
+                undercover_instruction=undercover_instruction,
             )
 
     return list(await asyncio.gather(*(question_view(view) for view in views)))
@@ -316,8 +349,9 @@ async def run_question(
     """Question the sellers of a finished run on the LLM configured in the environment.
 
     `experiment_name` is the Postgres schema, or the SQLite file path for sqlite. Reads
-    the undercover pick from and writes the reports to the current directory, the run
-    folder. Fails when the pick names no seller of the run.
+    the undercover pick and the undercover instruction (config.yml) from and writes the
+    reports to the current directory, the run folder. Fails when the pick names no
+    seller of the run.
     """
     # Read the run's sellers and views
     if db_type == "sqlite":
@@ -359,6 +393,7 @@ async def run_question(
         seller_ids,
         generate_struct_fn,
         max_concurrency=max_concurrency,
+        undercover_instruction=load_undercover_instruction(run_folder),
     )
     for report in reports:
         if report.error or report.dropped:

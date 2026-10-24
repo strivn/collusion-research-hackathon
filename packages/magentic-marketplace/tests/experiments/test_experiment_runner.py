@@ -566,8 +566,12 @@ async def test_input_yml_carries_the_informant_seed_and_position(
 
     await run_in(workspace, undercover_config(repetitions=3, base_seed=7))
 
+    # Only seed and position: input.yml lists every informant setting, defaults included
     informants = [
-        input_of(workspace, f"Undercover_rep{i}")["undercover_informant"]
+        {
+            key: input_of(workspace, f"Undercover_rep{i}")["undercover_informant"][key]
+            for key in ("seed", "position")
+        }
         for i in (1, 2, 3)
     ]
     assert informants == [

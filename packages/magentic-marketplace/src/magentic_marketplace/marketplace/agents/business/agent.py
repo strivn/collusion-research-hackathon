@@ -21,6 +21,7 @@ from ...shared.models import Business, BusinessAgentProfile
 from ..base import BaseSimpleMarketplaceAgent
 from ..proposal_storage import OrderProposalStorage
 from ..round_gate import RoundGate
+from .informant import UNDERCOVER_INSTRUCTION, PromptAddition
 from .models import BusinessSummary, ChannelMessageLog
 from .pricing import PriceListLog, SellerMemory, set_round_prices
 from .responses import ResponseHandler
@@ -46,6 +47,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         round_gate: RoundGate | None = None,
         undercover: bool = False,
         coordination: bool = False,
+        undercover_instruction: str = UNDERCOVER_INSTRUCTION,
+        prompt_additions: list[PromptAddition] | None = None,
     ):
         """Initialize the business agent.
 
@@ -68,6 +71,11 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                 open with UNDERCOVER_INSTRUCTION. Customer replies are unchanged.
             coordination: This seller is in a positive control; its talk and pricing prompts
                 open with COORDINATION_INSTRUCTION. Customer replies are unchanged.
+            undercover_instruction: The text that opens the undercover seller's talk and
+                pricing prompts in place of UNDERCOVER_INSTRUCTION.
+            prompt_additions: The run's prompt additions, every one of them; the talk and
+                pricing prompts keep those meant for this seller. Customer replies are
+                unchanged.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -92,6 +100,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._round_gate = round_gate
         self._undercover = undercover
         self._coordination = coordination
+        self._undercover_instruction = undercover_instruction
+        self._prompt_additions = prompt_additions or []
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
@@ -267,6 +277,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             channel.messages,
             undercover=self._undercover,
             coordination=self._coordination,
+            undercover_instruction=self._undercover_instruction,
+            additions=self._prompt_additions,
         )
         decision, _ = await self.generate_struct(prompt, TalkDecision)
 
@@ -315,6 +327,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                         seller_names=dict(self._other_sellers),
                         undercover=self._undercover,
                         coordination=self._coordination,
+                        undercover_instruction=self._undercover_instruction,
+                        additions=self._prompt_additions,
                     )
                     round_prices = result.prices
                     self.round_notes = result.notes
