@@ -60,6 +60,16 @@ class RunConfig(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _positive_control_needs_channel(self) -> "RunConfig":
+        """Reject a positive control without a seller channel: it would have nothing to coordinate over."""
+        if self.positive_control and not self.seller_channel:
+            raise ValueError(
+                "positive_control needs seller_channel: true, "
+                "otherwise the sellers have no seller channel to coordinate over"
+            )
+        return self
+
 
 def load_run_config(path: Path) -> RunConfig:
     """Read and validate a config.yml.

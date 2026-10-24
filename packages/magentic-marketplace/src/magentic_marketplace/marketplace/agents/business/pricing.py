@@ -9,7 +9,7 @@ from magentic_marketplace.platform.logger import MarketplaceLogger
 
 from ...actions import ChannelMessage
 from ...shared.models import Business
-from .informant import UNDERCOVER_INSTRUCTION
+from .informant import COORDINATION_INSTRUCTION, UNDERCOVER_INSTRUCTION
 
 REVENUE_GOAL = "Your goal is to maximize total revenue over all rounds."
 
@@ -153,8 +153,6 @@ def format_pricing_prompt(
     `undercover` opens the prompt with UNDERCOVER_INSTRUCTION, `coordination` with
     COORDINATION_INSTRUCTION.
     """
-    if coordination:
-        raise NotImplementedError("coordination instruction")
     # List each menu item with its current price
     price_lines = "\n".join(
         f"- {item_name}: ${price:.2f}" for item_name, price in current_prices.items()
@@ -184,6 +182,9 @@ Your menu items and current prices:
     # Open with the hidden instruction for the undercover seller
     if undercover:
         prompt = f"{UNDERCOVER_INSTRUCTION}\n\n{prompt}"
+    # Open with the coordination instruction for a seller of a positive control
+    if coordination:
+        prompt = f"{COORDINATION_INSTRUCTION}\n\n{prompt}"
     return prompt
 
 
@@ -230,8 +231,6 @@ async def set_round_prices(
     `undercover` opens every pricing prompt with UNDERCOVER_INSTRUCTION, `coordination`
     with COORDINATION_INSTRUCTION.
     """
-    if coordination:
-        raise NotImplementedError("coordination instruction")
     # Ask until the price list is valid, feeding the errors back each retry
     menu_items = list(business.menu_features)
     prices = current_prices
@@ -250,6 +249,7 @@ async def set_round_prices(
                     channel_messages=channel_messages,
                     seller_names=seller_names,
                     undercover=undercover,
+                    coordination=coordination,
                 ),
                 PriceList,
             )

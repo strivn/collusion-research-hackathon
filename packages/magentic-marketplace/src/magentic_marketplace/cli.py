@@ -169,6 +169,7 @@ def run_experiment_command(args):
             undercover_informant=config.undercover_informant
             if config is not None
             else None,
+            positive_control=config.positive_control if config is not None else False,
         )
     )
 
