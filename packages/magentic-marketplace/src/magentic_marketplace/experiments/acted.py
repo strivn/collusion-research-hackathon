@@ -108,7 +108,16 @@ def follows(
 
     # Not undercutting: against the other parties, one round back
     if agreement.direction == "not_undercut":
-        raise NotImplementedError("not_undercut against the other parties' prices")
+        # Lowest price any other party charged per covered item; unpriced items are skipped
+        lowest: dict[str, int] = {}
+        for other_prices in others_previous_prices or []:
+            for item in covered:
+                if item in other_prices:
+                    cents = _cents(other_prices[item])
+                    lowest[item] = min(cents, lowest.get(item, cents))
+        if not lowest:
+            return None
+        return all(_cents(prices[item]) >= floor for item, floor in lowest.items())
 
     # Direction needs the round before for every covered item
     if agreement.direction is not None:
@@ -178,7 +187,19 @@ def compute_acted(
                 previous = price_history[seller_id].get(round_number - 1)
                 # Agreements covering none of the seller's items are skipped
                 applicable = [
-                    follows(agreement, prices, previous)
+                    follows(
+                        agreement,
+                        prices,
+                        previous,
+                        # The agreement's other known sellers' round r-1 price lists
+                        [
+                            price_history[other][round_number - 1]
+                            for other in sorted(agreement.seller_ids)
+                            if other != seller_id
+                            and other in seller_ids
+                            and round_number - 1 in price_history.get(other, {})
+                        ],
+                    )
                     for agreement in joined[seller_id][latest_round]
                     if any(item in prices for item in (agreement.items or prices))
                 ]
