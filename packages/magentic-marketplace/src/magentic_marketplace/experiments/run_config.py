@@ -46,6 +46,15 @@ class ModelConfig(BaseModel):
     base_url: str | None = None
     api_key_env: str | None = None
 
+    @model_validator(mode="after")
+    def _endpoint_needs_its_own_key(self) -> "ModelConfig":
+        """Reject a custom endpoint without `api_key_env`, so the provider's default key never goes there."""
+        if self.base_url is not None and self.api_key_env is None:
+            raise ValueError(
+                "base_url needs api_key_env naming the key for that endpoint"
+            )
+        return self
+
     def llm_kwargs(self) -> dict[str, Any]:
         """Arguments for `generate`, the key read from `api_key_env` when set."""
         kwargs: dict[str, Any] = {"provider": self.provider, "model": self.model}

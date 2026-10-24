@@ -38,6 +38,12 @@ def test_model_config_reads_key_from_named_env_var(monkeypatch):
     }
 
 
+def test_custom_endpoint_without_key_name_is_rejected():
+    """A base_url without api_key_env is refused, so the default key never leaves for it."""
+    with pytest.raises(ValueError):
+        ModelConfig(provider="openai", model="m", base_url="https://example.invalid")
+
+
 def test_unknown_llm_key_is_rejected():
     """A misspelt role is refused, like every unknown setting."""
     with pytest.raises(ValueError):
