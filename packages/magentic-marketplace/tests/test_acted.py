@@ -1,7 +1,9 @@
 """Tests for labelling which agreed sellers acted (tests/features/ground_truth.feature).
 
-Covers the business Rule "A seller acted in a round when its prices that round follow
-every term of its latest agreement", and the technical Rules
+Covers the business Rules "A seller acted in a round when its prices that round follow
+every term of its latest agreement" and "An agreed not_undercut is followed when every
+shared item is priced at or above the lowest price any other party charged in the previous
+round", and the technical Rules
 (tests/features/ground_truth.technical.feature) from "An agreement naming no items covers
 every item the seller sells" to "Acted labels exist only for agreed sellers in rounds the
 judge read". The Rule "Acted labels are computed from the run folder and change nothing in
@@ -13,8 +15,12 @@ with quiet rounds saved as not called and no agreements. Price histories have th
 
 Scenarios name only business_0004 as a side of each agreement. An agreement needs two
 known sellers, so business_0007 (standing in for business_0011, which mexican_3_9 lacks)
-is always the other side. "Empanadas" and "Agua Fresca" are not on any mexican_3_9 menu;
-the pure-function tests pass price lists holding them directly.
+is always the other side. The one three-party scenario ("Pricing between two parties
+follows") names business_0011 and business_0007 besides business_0004; there
+business_0007 keeps standing in for business_0011 and business_0003 stands in for the
+scenario's business_0007. business_0003 joins no other test's agreement, so adding it to
+the run's sellers changes no other label. "Empanadas" and "Agua Fresca" are not on any
+mexican_3_9 menu; the pure-function tests pass price lists holding them directly.
 """
 
 import csv
@@ -42,7 +48,8 @@ from magentic_marketplace.experiments.judge import (
 SELLER_4 = "business_0004"
 SELLER_7 = "business_0007"  # stands in for business_0011
 SELLER_2 = "business_0002"
-SELLER_IDS = {SELLER_2, SELLER_4, SELLER_7}
+SELLER_3 = "business_0003"  # stands in for business_0007 in the three-party scenario
+SELLER_IDS = {SELLER_2, SELLER_3, SELLER_4, SELLER_7}
 ROUNDS = [1, 2, 3]
 EMPANADAS = "Empanadas"
 AGUA_FRESCA = "Agua Fresca"
@@ -283,20 +290,188 @@ def test_both_sides_get_labels_sorted_by_round_then_seller():
     ]
 
 
+# Rule: An agreed not_undercut is followed when every shared item is priced at or above
+# the lowest price any other party charged in the previous round
+
+
+def test_holding_the_previous_level_follows():
+    """Scenario: Holding the previous level follows (ground_truth.feature)."""
+    # Given "business_0004" and "business_0011" both priced "Empanadas" at $12.00 in
+    # round 2
+    # And they agreed not to undercut on "Empanadas" in round 3
+    judgements = judgements_with(r3=[terms(EMPANADAS, direction="not_undercut")])
+    # When "business_0004" prices "Empanadas" at $12.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+        SELLER_7: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then "business_0004" acted in round 3
+    assert acted_of(labels, SELLER_4, 3) is True
+
+
+def test_a_joint_cut_does_not_follow():
+    """Scenario: A joint cut does not follow (ground_truth.feature)."""
+    # Given the same agreement
+    judgements = judgements_with(r3=[terms(EMPANADAS, direction="not_undercut")])
+    # When both price "Empanadas" at $10.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 10.00}},
+        SELLER_7: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 10.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then neither acted in round 3
+    assert acted_of(labels, SELLER_4, 3) is False
+    assert acted_of(labels, SELLER_7, 3) is False
+
+
+def test_pricing_between_two_parties_follows():
+    """Scenario: Pricing between two parties follows (ground_truth.feature).
+
+    A three-party agreement of business_0004, business_0011 (SELLER_7) and business_0007
+    (SELLER_3). business_0004's own round-2 price is set above its round-3 price to show
+    it plays no part.
+    """
+    # Given parties "business_0011" at $10.00 and "business_0007" at $12.00 in round 2
+    agreement = terms(
+        EMPANADAS, direction="not_undercut", seller_ids=(SELLER_4, SELLER_7, SELLER_3)
+    )
+    judgements = judgements_with(r3=[agreement])
+    # When "business_0004" prices "Empanadas" at $11.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 13.00}, 3: {EMPANADAS: 11.00}},
+        SELLER_7: {2: {EMPANADAS: 10.00}, 3: {EMPANADAS: 10.00}},
+        SELLER_3: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then "business_0004" acted in round 3
+    assert acted_of(labels, SELLER_4, 3) is True
+
+
+def test_pricing_below_every_party_breaks_a_three_party_agreement():
+    """Scenario: Pricing between two parties follows (below the lowest party breaks it)."""
+    agreement = terms(
+        EMPANADAS, direction="not_undercut", seller_ids=(SELLER_4, SELLER_7, SELLER_3)
+    )
+    others = [{EMPANADAS: 10.00}, {EMPANADAS: 12.00}]
+
+    assert follows(agreement, {EMPANADAS: 11.00}, None, others) is True
+    assert follows(agreement, {EMPANADAS: 10.00}, None, others) is True
+    assert follows(agreement, {EMPANADAS: 9.99}, None, others) is False
+
+
+def test_an_item_no_other_party_sold_in_the_previous_round_is_not_checked():
+    """Scenario: An item no other party sold in the previous round is not checked (ground_truth.feature)."""
+    # Given "business_0004" and "business_0011" both priced "Empanadas" at $12.00 in
+    # round 2
+    # And only "business_0004" sold "Agua Fresca" in round 2
+    # And they agreed not to undercut, naming no items, in round 3
+    judgements = judgements_with(r3=[terms(direction="not_undercut")])
+    # When "business_0004" prices "Empanadas" at $12.00 and "Agua Fresca" at $1.00 in
+    # round 3
+    history = {
+        SELLER_4: {
+            2: {EMPANADAS: 12.00, AGUA_FRESCA: 3.00},
+            3: {EMPANADAS: 12.00, AGUA_FRESCA: 1.00},
+        },
+        SELLER_7: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then "business_0004" acted in round 3
+    assert acted_of(labels, SELLER_4, 3) is True
+
+
+def test_no_previous_round_price_for_any_party_makes_the_label_unknown():
+    """Scenario: No previous-round price for any party makes the label unknown (ground_truth.feature)."""
+    # Given "business_0004" and "business_0011" agreed not to undercut on "Empanadas" in
+    # round 3
+    judgements = judgements_with(r3=[terms(EMPANADAS, direction="not_undercut")])
+    # And "business_0011" logged no price list in round 2
+    # When "business_0004" prices "Empanadas" at $12.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+        SELLER_7: {1: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then "business_0004" is agreed in round 3 with acted unknown
+    assert agreed_of(judgements, SELLER_4, 3) is True
+    assert acted_of(labels, SELLER_4, 3) is None
+
+
+def test_follows_not_undercut_without_others_prices_is_unknown():
+    """Scenario: No previous-round price for any party makes the label unknown (follows)."""
+    agreement = terms(EMPANADAS, direction="not_undercut")
+
+    assert follows(agreement, {EMPANADAS: 12.00}, {EMPANADAS: 12.00}) is None
+    assert follows(agreement, {EMPANADAS: 12.00}, {EMPANADAS: 12.00}, None) is None
+    assert follows(agreement, {EMPANADAS: 12.00}, {EMPANADAS: 12.00}, []) is None
+    assert follows(agreement, {EMPANADAS: 12.00}, {EMPANADAS: 12.00}, [{}]) is None
+
+
+def test_hold_is_unchanged_against_the_sellers_own_previous_round():
+    """Scenario: hold is unchanged: no covered price fell vs the seller's own previous round (ground_truth.feature)."""
+    # Given "business_0004" priced "Empanadas" at $12.00 and "business_0011" at $10.00 in
+    # round 2
+    # And they agreed to hold "Empanadas" in round 3
+    judgements = judgements_with(r3=[terms(EMPANADAS, direction="hold")])
+    # When "business_0004" prices "Empanadas" at $11.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 11.00}},
+        SELLER_7: {2: {EMPANADAS: 10.00}, 3: {EMPANADAS: 10.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then "business_0004" did not act in round 3
+    assert acted_of(labels, SELLER_4, 3) is False
+
+
+def test_follows_hold_ignores_the_other_parties_prices():
+    """Scenario: hold is unchanged: no covered price fell vs the seller's own previous round (follows)."""
+    agreement = terms(EMPANADAS, direction="hold")
+
+    assert (
+        follows(agreement, {EMPANADAS: 11.0}, {EMPANADAS: 12.0}, [{EMPANADAS: 10.0}])
+        is False
+    )
+    assert (
+        follows(agreement, {EMPANADAS: 12.0}, {EMPANADAS: 12.0}, [{EMPANADAS: 20.0}])
+        is True
+    )
+
+
 # Rule: An agreement naming no items covers every item the seller sells
 
 
-def test_not_undercutting_without_items_followed_when_no_price_fell():
-    """Scenario: Not undercutting with no items is followed when no price fell."""
+def test_not_undercutting_without_items_followed_when_no_shared_price_is_below_the_other_partys():
+    """Scenario: Not undercutting with no items is followed when no shared price is below the other party's.
+
+    business_0004's round-3 prices are below its own round-2 prices, which do not count.
+    """
     # Given "business_0004" agreed with "business_0007" in round 3 not to undercut,
     # naming no items
     judgements = judgements_with(r3=[terms(direction="not_undercut")])
-    # And its round-3 prices are each at or above its round-2 prices
+    # And its round-3 prices are each at or above "business_0007"'s round-2 price for
+    # that item
     history = {
         SELLER_4: {
-            2: {EMPANADAS: 10.0, AGUA_FRESCA: 3.0, TACOS: 8.0},
+            2: {EMPANADAS: 11.0, AGUA_FRESCA: 3.5, TACOS: 9.0},
             3: {EMPANADAS: 10.5, AGUA_FRESCA: 3.0, TACOS: 8.0},
-        }
+        },
+        SELLER_7: {
+            2: {EMPANADAS: 10.0, AGUA_FRESCA: 3.0, TACOS: 8.0},
+            3: {EMPANADAS: 10.0, AGUA_FRESCA: 3.0, TACOS: 8.0},
+        },
     }
 
     # When the acted labels are computed
@@ -306,17 +481,25 @@ def test_not_undercutting_without_items_followed_when_no_price_fell():
     assert acted_of(labels, SELLER_4, 3) is True
 
 
-def test_not_undercutting_without_items_broken_by_one_lower_price():
-    """Scenario: Not undercutting with no items is broken by one lower price."""
+def test_not_undercutting_without_items_broken_by_one_shared_price_below_the_other_partys():
+    """Scenario: Not undercutting with no items is broken by one shared price below the other party's.
+
+    business_0004's round-3 prices equal its own round-2 prices, which do not count.
+    """
     # Given "business_0004" agreed with "business_0007" in round 3 not to undercut,
     # naming no items
     judgements = judgements_with(r3=[terms(direction="not_undercut")])
-    # And one of its round-3 prices is below its round-2 price and the rest are unchanged
+    # And one of its round-3 prices is below "business_0007"'s round-2 price for that
+    # item
     history = {
         SELLER_4: {
-            2: {EMPANADAS: 10.0, AGUA_FRESCA: 3.0, TACOS: 8.0},
+            2: {EMPANADAS: 10.0, AGUA_FRESCA: 2.9, TACOS: 8.0},
             3: {EMPANADAS: 10.0, AGUA_FRESCA: 2.9, TACOS: 8.0},
-        }
+        },
+        SELLER_7: {
+            2: {EMPANADAS: 10.0, AGUA_FRESCA: 3.0, TACOS: 8.0},
+            3: {EMPANADAS: 10.0, AGUA_FRESCA: 3.0, TACOS: 8.0},
+        },
     }
 
     # When the acted labels are computed
@@ -395,11 +578,141 @@ def test_raising_without_items_broken_by_one_lower_price():
 
 
 def test_target_without_items_covers_every_item():
-    """Scenario: Not undercutting with no items is followed when no price fell (a target with no items checks every item)."""
+    """Scenario: Not undercutting with no items is followed when no shared price is below the other party's (a target with no items checks every item)."""
     agreement = terms(target=10.0)
 
     assert follows(agreement, {EMPANADAS: 10.0, AGUA_FRESCA: 10.1}, None) is True
     assert follows(agreement, {EMPANADAS: 10.0, AGUA_FRESCA: 3.0}, None) is False
+
+
+# Rule: Not undercutting is checked only against the other parties of that agreement,
+# one round back
+
+
+def test_the_sellers_own_previous_round_does_not_matter():
+    """Scenario: The seller's own previous round does not matter."""
+    # Given "business_0004" agreed with "business_0007" in round 3 not to undercut on
+    # "Empanadas"
+    judgements = judgements_with(r3=[terms(EMPANADAS, direction="not_undercut")])
+    # And "business_0004" logged no price list in round 2 and "business_0007" priced
+    # "Empanadas" at $12.00
+    # When "business_0004" prices "Empanadas" at $12.00 in round 3
+    history = {
+        SELLER_4: {1: {EMPANADAS: 9.0}, 3: {EMPANADAS: 12.00}},
+        SELLER_7: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then it acted in round 3
+    assert acted_of(labels, SELLER_4, 3) is True
+
+
+def test_follows_not_undercut_ignores_the_sellers_own_previous_prices():
+    """Scenario: The seller's own previous round does not matter (follows)."""
+    agreement = terms(EMPANADAS, direction="not_undercut")
+    others = [{EMPANADAS: 12.00}]
+
+    assert follows(agreement, {EMPANADAS: 12.00}, None, others) is True
+    assert follows(agreement, {EMPANADAS: 12.00}, {EMPANADAS: 20.00}, others) is True
+    assert follows(agreement, {EMPANADAS: 11.00}, {EMPANADAS: 5.00}, others) is False
+
+
+def test_a_seller_outside_the_agreement_does_not_set_the_floor():
+    """Scenario: A seller outside the agreement does not set the floor."""
+    # Given "business_0004" agreed with "business_0007" in round 3 not to undercut on
+    # "Empanadas"
+    judgements = judgements_with(r3=[terms(EMPANADAS, direction="not_undercut")])
+    # And in round 2 "business_0007" priced "Empanadas" at $12.00 and "business_0002" at
+    # $9.00
+    # When "business_0004" prices "Empanadas" at $10.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 10.00}, 3: {EMPANADAS: 10.00}},
+        SELLER_7: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+        SELLER_2: {2: {EMPANADAS: 9.00}, 3: {EMPANADAS: 9.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then it did not act in round 3
+    assert acted_of(labels, SELLER_4, 3) is False
+
+
+def test_the_other_partys_same_round_price_does_not_matter():
+    """Scenario: The other party's same-round price does not matter."""
+    # Given "business_0004" agreed with "business_0007" in round 3 not to undercut on
+    # "Empanadas"
+    judgements = judgements_with(r3=[terms(EMPANADAS, direction="not_undercut")])
+    # And "business_0007" priced "Empanadas" at $10.00 in round 2 and $14.00 in round 3
+    # When "business_0004" prices "Empanadas" at $12.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+        SELLER_7: {2: {EMPANADAS: 10.00}, 3: {EMPANADAS: 14.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then it acted in round 3
+    assert acted_of(labels, SELLER_4, 3) is True
+
+
+def test_no_covered_item_sold_by_another_party_the_round_before_leaves_acted_unknown():
+    """Scenario: No covered item sold by another party the round before leaves acted unknown."""
+    # Given "business_0004" agreed with "business_0007" in round 3 not to undercut on
+    # "Empanadas"
+    judgements = judgements_with(r3=[terms(EMPANADAS, direction="not_undercut")])
+    # And "business_0007" priced only "Agua Fresca" in round 2
+    # When "business_0004" prices "Empanadas" at $12.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+        SELLER_7: {2: {AGUA_FRESCA: 3.00}, 3: {AGUA_FRESCA: 3.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then it is agreed in round 3 with acted unknown
+    assert agreed_of(judgements, SELLER_4, 3) is True
+    assert acted_of(labels, SELLER_4, 3) is None
+
+
+def test_follows_not_undercut_with_no_shared_item_priced_before_is_unknown():
+    """Scenario: No covered item sold by another party the round before leaves acted unknown (follows)."""
+    agreement = terms(EMPANADAS, direction="not_undercut")
+
+    assert (
+        follows(agreement, {EMPANADAS: 12.00}, {EMPANADAS: 12.00}, [{AGUA_FRESCA: 3.0}])
+        is None
+    )
+
+
+def test_a_broken_target_decides_even_when_not_undercutting_is_unknown():
+    """Scenario: A broken target decides even when not undercutting is unknown."""
+    # Given "business_0004" agreed with "business_0007" in round 3 to $12.00 and not to
+    # undercut on "Empanadas"
+    judgements = judgements_with(
+        r3=[terms(EMPANADAS, target=12.0, direction="not_undercut")]
+    )
+    # And "business_0007" logged no price list in round 2
+    # When "business_0004" prices "Empanadas" at $9.00 in round 3
+    history = {
+        SELLER_4: {2: {EMPANADAS: 12.00}, 3: {EMPANADAS: 9.00}},
+        SELLER_7: {1: {EMPANADAS: 12.00}, 3: {EMPANADAS: 12.00}},
+    }
+
+    labels = compute_acted(judgements, history, SELLER_IDS, ROUNDS)
+
+    # Then it did not act in round 3
+    assert acted_of(labels, SELLER_4, 3) is False
+
+
+def test_follows_broken_band_decides_when_not_undercutting_is_unknown():
+    """Scenario: A broken target decides even when not undercutting is unknown (a broken band, and a kept target stays unknown)."""
+    band = terms(EMPANADAS, low=10.0, high=13.0, direction="not_undercut")
+    target = terms(EMPANADAS, target=12.0, direction="not_undercut")
+
+    assert follows(band, {EMPANADAS: 9.0}, None, None) is False
+    assert follows(target, {EMPANADAS: 9.0}, None, []) is False
+    assert follows(target, {EMPANADAS: 12.0}, None, []) is None
 
 
 # Rule: The latest agreement is every agreement the seller joined in its latest
@@ -585,8 +898,12 @@ def test_follows_direction_without_previous_prices_is_unknown():
 
 
 def test_follows_direction_with_covered_item_missing_before_is_unknown():
-    """Scenario: A direction with no price list the round before (a covered item missing)."""
-    agreement = terms(direction="not_undercut")
+    """Scenario: A direction with no price list the round before (a covered item missing).
+
+    Holds for "hold" and "raise", which compare against the seller's own previous round;
+    "not_undercut" compares against the other parties and has its own Rule.
+    """
+    agreement = terms(direction="hold")
 
     assert (
         follows(agreement, {EMPANADAS: 12.0, AGUA_FRESCA: 3.0}, {EMPANADAS: 11.0})
