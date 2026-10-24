@@ -13,7 +13,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 import anthropic
 from pydantic import BaseModel, ConfigDict
@@ -128,6 +128,8 @@ class JudgeRefusedError(Exception):
 # A judge takes the round's prompt and returns its parsed answer, or raises
 JudgeFn = Callable[[str], Awaitable[JudgeAnswer]]
 
+AnswerT = TypeVar("AnswerT", bound=BaseModel)
+
 
 async def load_channel_posts(database: BaseDatabaseController) -> list[ChannelPost]:
     """Return every channel message of the run, one per message sent, in log order.
@@ -177,6 +179,13 @@ async def load_price_history(
     return dict(history)
 
 
+def format_post_line(post: ChannelPost) -> str:
+    """Return one message as a prompt line: "[turn <t>] <sender> -> <recipient>, ...: <text>"."""
+    return (
+        f"[turn {post.turn}] {post.sender} -> {', '.join(post.recipients)}: {post.text}"
+    )
+
+
 def format_judge_prompt(
     round_number: int,
     posts: list[ChannelPost],
@@ -193,9 +202,7 @@ def format_judge_prompt(
     """
     # This round's messages, in log order
     message_lines = [
-        f"[turn {post.turn}] {post.sender} -> {', '.join(post.recipients)}: {post.text}"
-        for post in posts
-        if post.round == round_number
+        format_post_line(post) for post in posts if post.round == round_number
     ]
 
     # Each seller's prices from round 1 up to this round
@@ -220,11 +227,13 @@ def format_judge_prompt(
     return "\n\n".join(parts)
 
 
-def build_judge_request(prompt: str) -> dict[str, Any]:
+def build_judge_request(
+    prompt: str, answer_model: type[BaseModel] = JudgeAnswer
+) -> dict[str, Any]:
     """Return the keyword arguments for `AsyncAnthropic().messages.create` for one prompt.
 
     Model JUDGE_MODEL, JUDGE_MAX_TOKENS, one user message. `extra_body` carries
-    `output_config` (effort JUDGE_EFFORT and a `json_schema` format from JudgeAnswer) and
+    `output_config` (effort JUDGE_EFFORT and a `json_schema` format from `answer_model`) and
     `fallbacks: "default"`; `extra_headers` sets `anthropic-beta` to FALLBACK_BETA. Thinking
     is left at the model's default (adaptive); no tool choice is sent.
     """
@@ -238,7 +247,7 @@ def build_judge_request(prompt: str) -> dict[str, Any]:
                 "effort": JUDGE_EFFORT,
                 "format": {
                     "type": "json_schema",
-                    "schema": JudgeAnswer.model_json_schema(),
+                    "schema": answer_model.model_json_schema(),
                 },
             },
             "fallbacks": "default",
@@ -247,29 +256,36 @@ def build_judge_request(prompt: str) -> dict[str, Any]:
     }
 
 
-def make_anthropic_judge(client: Any) -> JudgeFn:
-    """Return a judge that calls `client.messages.create` with `build_judge_request`.
+async def ask_anthropic(
+    client: Any, prompt: str, answer_model: type[AnswerT]
+) -> AnswerT:
+    """Call `client.messages.create` with `build_judge_request` and parse the answer.
 
     Raises JudgeRefusedError when the stop reason is "refusal"; otherwise parses the text
-    blocks of the response into a JudgeAnswer. API errors propagate.
+    blocks of the response into `answer_model`. API errors propagate.
     """
+    response = await client.messages.create(**build_judge_request(prompt, answer_model))
+
+    # A refusal carries its category and explanation in stop_details when the SDK has them
+    if response.stop_reason == "refusal":
+        details = getattr(response, "stop_details", None)
+        category = getattr(details, "category", None)
+        explanation = getattr(details, "explanation", None)
+        raise JudgeRefusedError(
+            "The judge refused"
+            + (f" ({category})" if category else "")
+            + (f": {explanation}" if explanation else "")
+        )
+
+    text = "".join(block.text for block in response.content if block.type == "text")
+    return answer_model.model_validate_json(text)
+
+
+def make_anthropic_judge(client: Any) -> JudgeFn:
+    """Return a judge that asks `client` for a JudgeAnswer with `ask_anthropic`."""
 
     async def judge(prompt: str) -> JudgeAnswer:
-        response = await client.messages.create(**build_judge_request(prompt))
-
-        # A refusal carries its category and explanation in stop_details when the SDK has them
-        if response.stop_reason == "refusal":
-            details = getattr(response, "stop_details", None)
-            category = getattr(details, "category", None)
-            explanation = getattr(details, "explanation", None)
-            raise JudgeRefusedError(
-                "The judge refused"
-                + (f" ({category})" if category else "")
-                + (f": {explanation}" if explanation else "")
-            )
-
-        text = "".join(block.text for block in response.content if block.type == "text")
-        return JudgeAnswer.model_validate_json(text)
+        return await ask_anthropic(client, prompt, JudgeAnswer)
 
     return judge
 
