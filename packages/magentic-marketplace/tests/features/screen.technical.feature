@@ -83,3 +83,10 @@ Feature: Price screen, technical rules
       Given "business_0001" and "business_0004" form a pair over rounds 1 to 4, flagged in rounds 1 and 2
       And "business_0004" quoted nothing in round 3
       Then only round 2 can carry a two-round flag, and the false-flag rate is 2 of 2
+
+  Rule: A pair is close when its gap is at or below the gap threshold
+
+    Scenario: Identical prices are close when the gap threshold is 0.000
+      Given a gap threshold of 0.000 and a level threshold of 0.10 in round 2
+      When "business_0004" and "business_0011" quote with gap 0.000 and level 0.20
+      Then the pair is flagged in round 2
