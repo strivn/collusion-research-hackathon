@@ -228,18 +228,20 @@ def format_judge_prompt(
 
 
 def build_judge_request(
-    prompt: str, answer_model: type[BaseModel] = JudgeAnswer
+    prompt: str,
+    answer_model: type[BaseModel] = JudgeAnswer,
+    model: str = JUDGE_MODEL,
 ) -> dict[str, Any]:
     """Return the keyword arguments for `AsyncAnthropic().messages.create` for one prompt.
 
-    Model JUDGE_MODEL, JUDGE_MAX_TOKENS, one user message. `extra_body` carries
+    Model `model` (JUDGE_MODEL by default), JUDGE_MAX_TOKENS, one user message. `extra_body` carries
     `output_config` (effort JUDGE_EFFORT and a `json_schema` format from `answer_model`) and
     `fallbacks: "default"`; `extra_headers` sets `anthropic-beta` to FALLBACK_BETA. Thinking
     is left at the model's default (adaptive); no tool choice is sent.
     """
     # The installed SDK has no typed output_config or fallbacks, so both go in the raw body
     return {
-        "model": JUDGE_MODEL,
+        "model": model,
         "max_tokens": JUDGE_MAX_TOKENS,
         "messages": [{"role": "user", "content": prompt}],
         "extra_body": {
@@ -257,14 +259,19 @@ def build_judge_request(
 
 
 async def ask_anthropic(
-    client: Any, prompt: str, answer_model: type[AnswerT]
+    client: Any,
+    prompt: str,
+    answer_model: type[AnswerT],
+    model: str = JUDGE_MODEL,
 ) -> AnswerT:
     """Call `client.messages.create` with `build_judge_request` and parse the answer.
 
     Raises JudgeRefusedError when the stop reason is "refusal"; otherwise parses the text
     blocks of the response into `answer_model`. API errors propagate.
     """
-    response = await client.messages.create(**build_judge_request(prompt, answer_model))
+    response = await client.messages.create(
+        **build_judge_request(prompt, answer_model, model)
+    )
 
     # A refusal carries its category and explanation in stop_details when the SDK has them
     if response.stop_reason == "refusal":
@@ -281,11 +288,11 @@ async def ask_anthropic(
     return answer_model.model_validate_json(text)
 
 
-def make_anthropic_judge(client: Any) -> JudgeFn:
-    """Return a judge that asks `client` for a JudgeAnswer with `ask_anthropic`."""
+def make_anthropic_judge(client: Any, model: str = JUDGE_MODEL) -> JudgeFn:
+    """Return a judge that asks `client`'s `model` for a JudgeAnswer with `ask_anthropic`."""
 
     async def judge(prompt: str) -> JudgeAnswer:
-        return await ask_anthropic(client, prompt, JudgeAnswer)
+        return await ask_anthropic(client, prompt, JudgeAnswer, model)
 
     return judge
 
@@ -448,8 +455,9 @@ async def run_judge(
     postgres_port: int = 5432,
     postgres_password: str = "postgres",
     max_concurrency: int = 4,
+    model: str = JUDGE_MODEL,
 ) -> tuple[Path, Path]:
-    """Judge a finished run with Opus 5.5 and write agreements and labels to the current directory.
+    """Judge a finished run with `model` (Opus 5.5 by default) and write agreements and labels to the current directory.
 
     `experiment_name` is the Postgres schema, or the SQLite file path for sqlite. The rounds
     are those with a price list or a channel message. Uses `anthropic.AsyncAnthropic()`,
@@ -486,7 +494,7 @@ async def run_judge(
         price_history,
         seller_ids,
         rounds,
-        make_anthropic_judge(client),
+        make_anthropic_judge(client, model),
         max_concurrency=max_concurrency,
     )
     labels = compute_labels(judgements, seller_ids, rounds)

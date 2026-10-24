@@ -25,6 +25,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from magentic_marketplace.experiments.judge import (
+    JUDGE_MODEL,
     ChannelPost,
     JudgeRefusedError,
     ask_anthropic,
@@ -362,7 +363,9 @@ def format_notes_prompt(
 
 
 def make_anthropic_labeller(
-    client: Any, labels: LabelDefinitions = LABEL_DEFINITIONS
+    client: Any,
+    labels: LabelDefinitions = LABEL_DEFINITIONS,
+    model: str = JUDGE_MODEL,
 ) -> LabellerFn:
     """Return a labeller that asks `client` for a ConductAnswer with `judge.ask_anthropic`.
 
@@ -372,7 +375,7 @@ def make_anthropic_labeller(
     answer_model = conduct_answer_model(labels)
 
     async def labeller(prompt: str) -> ConductAnswer:
-        return await ask_anthropic(client, prompt, answer_model)
+        return await ask_anthropic(client, prompt, answer_model, model)
 
     return labeller
 
@@ -744,8 +747,9 @@ async def run_conduct(
     max_concurrency: int = 4,
     labels_path: Path | None = None,
     source: Source = "posts",
+    model: str = JUDGE_MODEL,
 ) -> tuple[Path, ...]:
-    """Label a finished run with Opus 5.5 and write the labels to the current directory.
+    """Label a finished run with `model` (Opus 5.5 by default) and write the labels to the current directory.
 
     With source "posts", labels the channel posts and writes labels and counts; with
     "notes", labels the sellers' pricing notes and writes the note labels only.
@@ -795,7 +799,7 @@ async def run_conduct(
     if source == "notes":
         note_results = await label_notes_rounds(
             notes,
-            make_anthropic_labeller(client, labels),
+            make_anthropic_labeller(client, labels, model=model),
             max_concurrency=max_concurrency,
             labels=labels,
         )
@@ -805,7 +809,7 @@ async def run_conduct(
     results = await label_rounds(
         posts,
         rounds,
-        make_anthropic_labeller(client, labels),
+        make_anthropic_labeller(client, labels, model=model),
         max_concurrency=max_concurrency,
         labels=labels,
     )

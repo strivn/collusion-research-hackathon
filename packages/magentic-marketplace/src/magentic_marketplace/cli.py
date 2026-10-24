@@ -26,7 +26,7 @@ from magentic_marketplace.experiments.hand_labels import (
     run_label_check,
     run_label_sample,
 )
-from magentic_marketplace.experiments.judge import run_judge
+from magentic_marketplace.experiments.judge import JUDGE_MODEL, run_judge
 from magentic_marketplace.experiments.list_experiments import list_experiments
 from magentic_marketplace.experiments.questioning import run_question
 from magentic_marketplace.experiments.round_scores import run_score
@@ -247,6 +247,7 @@ def run_judge_command(args):
             postgres_port=args.postgres_port,
             postgres_password=args.postgres_password,
             max_concurrency=args.max_concurrency,
+            model=args.model,
         )
     )
     print(f"Wrote {agreements_path}")
@@ -267,6 +268,7 @@ def run_conduct_command(args):
             max_concurrency=args.max_concurrency,
             labels_path=Path(args.labels) if args.labels else None,
             source=args.source,
+            model=args.model,
         )
     )
     for path in paths:
@@ -669,7 +671,7 @@ def main():
     # judge subcommand
     judge_parser = subparsers.add_parser(
         "judge",
-        help="Find price agreements in a finished run's channel messages with Opus 5.5; writes agreements and agreed labels to the current directory",
+        help="Find price agreements in a finished run's channel messages with Opus 5.5 by default; writes agreements and agreed labels to the current directory",
     )
     judge_parser.set_defaults(func=run_judge_command)
     judge_parser.add_argument(
@@ -693,6 +695,11 @@ def main():
         help="Most rounds waiting on the judge at once (default: 4)",
     )
     judge_parser.add_argument(
+        "--model",
+        default=JUDGE_MODEL,
+        help=f"Anthropic model for the judge (default: {JUDGE_MODEL})",
+    )
+    judge_parser.add_argument(
         "--postgres-host",
         default=os.environ.get("POSTGRES_HOST", "localhost"),
         help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
@@ -712,7 +719,7 @@ def main():
     # conduct subcommand
     conduct_parser = subparsers.add_parser(
         "conduct",
-        help="Label what each seller says on the channel of a finished run with Opus 5.5; writes conduct labels and post counts to the current directory",
+        help="Label what each seller says on the channel of a finished run with Opus 5.5 by default; writes conduct labels and post counts to the current directory",
     )
     conduct_parser.set_defaults(func=run_conduct_command)
     conduct_parser.add_argument(
@@ -734,6 +741,11 @@ def main():
         type=int,
         default=4,
         help="Most rounds waiting on the labeller at once (default: 4)",
+    )
+    conduct_parser.add_argument(
+        "--model",
+        default=JUDGE_MODEL,
+        help=f"Anthropic model for the labeller (default: {JUDGE_MODEL})",
     )
     conduct_parser.add_argument(
         "--labels",
