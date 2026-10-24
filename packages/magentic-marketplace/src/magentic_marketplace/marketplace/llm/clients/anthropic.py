@@ -316,7 +316,14 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
                                 current_messages.append(
                                     anthropic.types.MessageParam(
                                         role="user",
-                                        content=error_message,
+                                        content=[
+                                            anthropic.types.ToolResultBlockParam(
+                                                type="tool_result",
+                                                tool_use_id=block.id,
+                                                content=error_message,
+                                                is_error=True,
+                                            )
+                                        ],
                                     )
                                 )
                             break
