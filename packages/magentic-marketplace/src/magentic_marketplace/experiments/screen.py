@@ -4,7 +4,7 @@ Groups are competing pairs: two sellers that can both fill some customer's order
 requested item on the menu, every required amenity). A seller's markup in a round is the
 median of log(quoted total / the customer's reference price) over its quotes that round,
 refused quotes included. A pair is flagged in a round when its mean markup is above the
-high threshold and the gap between its two markups is below the low threshold, both
+high threshold and the gap between its two markups is at or below the low threshold, both
 thresholds taken from the same round index of S2 runs (pricing on, channel off). A seller
 is flagged in round r when it is in a flagged pair in rounds r and r-1; the one-round
 variant drops that persistence.
@@ -84,7 +84,7 @@ class RunPrices(BaseModel):
 
 
 class Thresholds(BaseModel):
-    """Per round index: the level a pair's mean markup must exceed, and the gap it must stay under."""
+    """Per round index: the level a pair's mean markup must exceed, and the gap it must not exceed."""
 
     level: dict[int, float]
     gap: dict[int, float]
@@ -238,18 +238,18 @@ def screen_run(
     """Apply `thresholds` to `run`: return seller flags and pair flags.
 
     A pair is flagged in round r when its level is strictly above thresholds.level[r] and
-    its gap strictly below thresholds.gap[r]; a round without thresholds flags no pair.
+    its gap at or below thresholds.gap[r]; a round without thresholds flags no pair.
     Seller rows: one per seller in any pair per round of `run.rounds`, with its markup.
     flagged_one_round when it is in a flagged pair that round; flagged when it is also in
     one in round r-1 (so never in the first round). Sorted as in `save_flags`.
     """
-    # Flag pairs strictly above the level and strictly below the gap
+    # Flag pairs strictly above the level and at or below the gap
     pair_flags = [
         pair_flag.model_copy(
             update={
                 "flagged": pair_flag.round in thresholds.level
                 and pair_flag.level > thresholds.level[pair_flag.round]
-                and pair_flag.gap < thresholds.gap[pair_flag.round]
+                and pair_flag.gap <= thresholds.gap[pair_flag.round]
             }
         )
         for pair_flag in pair_rounds(run)
