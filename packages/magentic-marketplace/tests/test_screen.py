@@ -6,8 +6,9 @@ databases and lives in tests/test_cli_screen.py. Also covers the technical Rules
 (tests/features/screen.technical.feature) from "Calibration needs at least 3 S2 runs" to
 "A calibration run is screened only with thresholds fitted without it"; the Rule "The
 screen writes its flags to the run folder and changes nothing in the run" is end to end in
-tests/test_cli_screen.py. The Rule "The false-flag rate counts only seller-rounds that could
-be flagged" is covered here too.
+tests/test_cli_screen.py. The Rules "The false-flag rate counts only seller-rounds that could
+be flagged" and "A pair is close when its gap is at or below the gap threshold" are covered
+here too.
 
 Calibration fixtures are S2 runs of disjoint pairs: pair k is business_(2k+1) and
 business_(2k+2), and each pair is given its level (mean markup) and gap (markup
@@ -47,6 +48,7 @@ SELLER_1 = "business_0001"
 SELLER_2 = "business_0002"
 SELLER_3 = "business_0003"
 SELLER_4 = "business_0004"
+SELLER_11 = "business_0011"
 CUSTOMER_1 = "customer_0001"
 CUSTOMER_2 = "customer_0002"
 CUSTOMER_3 = "customer_0003"
@@ -307,12 +309,12 @@ def test_pair_flagged_when_high_and_close():
         pytest.param(0.5, 0.25, id="level-below-threshold"),
         pytest.param(0.3125, 0.25, id="level-equal-to-threshold"),
         pytest.param(0.25, 0.1, id="gap-above-threshold"),
-        pytest.param(0.25, 0.125, id="gap-equal-to-threshold"),
     ],
 )
-def test_pair_not_flagged_unless_strictly_high_and_close(level, gap):
-    """Scenario: A pair is flagged when both prices are high and close (both conditions strict)."""
-    # Given a pair at level 0.3125 and gap 0.125 in round 3, failing one condition
+def test_pair_not_flagged_unless_level_strictly_above_and_gap_not_above(level, gap):
+    """Scenario: A pair is flagged when both prices are high and close (level strictly above, gap not above)."""
+    # Given a pair at level 0.3125 and gap 0.125 in round 3, its level not strictly above
+    # the level threshold or its gap above the gap threshold
     run = pair_run("screened", HIGH_CLOSE, [3])
     thresholds = Thresholds(level={3: level}, gap={3: gap})
 
@@ -713,3 +715,50 @@ def test_calibration_run_screened_without_itself():
     assert_same_thresholds(thresholds, fit_thresholds([run_a, run_c], *percentiles))
     with_b = fit_thresholds([run_a, run_b, run_c], *percentiles)
     assert thresholds.level[3] != pytest.approx(with_b.level[3])
+
+
+# Rule: A pair is close when its gap is at or below the gap threshold
+
+
+def test_identical_prices_are_close_when_gap_threshold_is_zero():
+    """Scenario: Identical prices are close when the gap threshold is 0.000 (screen.technical.feature)."""
+    # Given a gap threshold of 0.000 and a level threshold of 0.10 in round 2
+    thresholds = Thresholds(level={2: 0.10}, gap={2: 0.0})
+
+    # When "business_0004" and "business_0011" quote with gap 0.000 and level 0.20
+    run = pair_run("screened", {SELLER_4: {2: 0.20}, SELLER_11: {2: 0.20}}, [2])
+    _, pair_flags = screen_run(run, thresholds)
+
+    # Then the pair is flagged in round 2
+    assert pair_flags == [
+        PairFlag(
+            round=2,
+            seller_a=SELLER_4,
+            seller_b=SELLER_11,
+            level=0.20,
+            gap=0.0,
+            flagged=True,
+        )
+    ]
+
+
+def test_gap_equal_to_a_nonzero_gap_threshold_is_close():
+    """Scenario: Identical prices are close when the gap threshold is 0.000 (a gap equal to a non-zero threshold is close too)."""
+    # Given a gap threshold of 0.125 and a level threshold of 0.25 in round 3
+    thresholds = Thresholds(level={3: 0.25}, gap={3: 0.125})
+
+    # When a pair quotes with gap 0.125, equal to the threshold, and level 0.3125
+    run = pair_run("screened", HIGH_CLOSE, [3])
+    _, pair_flags = screen_run(run, thresholds)
+
+    # Then the pair is flagged in round 3
+    assert pair_flags == [
+        PairFlag(
+            round=3,
+            seller_a=SELLER_1,
+            seller_b=SELLER_2,
+            level=0.3125,
+            gap=0.125,
+            flagged=True,
+        )
+    ]
