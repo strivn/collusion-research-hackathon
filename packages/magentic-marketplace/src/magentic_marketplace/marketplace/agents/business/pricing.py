@@ -9,7 +9,11 @@ from magentic_marketplace.platform.logger import MarketplaceLogger
 
 from ...actions import ChannelMessage
 from ...shared.models import Business
-from .informant import COORDINATION_INSTRUCTION, UNDERCOVER_INSTRUCTION
+from .informant import (
+    COORDINATION_INSTRUCTION,
+    UNDERCOVER_INSTRUCTION,
+    PromptAddition,
+)
 
 REVENUE_GOAL = "Your goal is to maximize total revenue over all rounds."
 
@@ -142,6 +146,8 @@ def format_pricing_prompt(
     seller_names: dict[str, str] | None = None,
     undercover: bool = False,
     coordination: bool = False,
+    undercover_instruction: str = UNDERCOVER_INSTRUCTION,
+    additions: list[PromptAddition] | None = None,
 ) -> str:
     """Prompt asking the seller to set a price for every menu item for `round_number`.
 
@@ -150,8 +156,9 @@ def format_pricing_prompt(
     its prices, units sold and revenue per past round, rivals' last prices, and asks for
     notes that are the only thing it will remember next round. `channel_messages` adds
     this round's channel messages, naming other sellers from `seller_names` when given.
-    `undercover` opens the prompt with UNDERCOVER_INSTRUCTION, `coordination` with
-    COORDINATION_INSTRUCTION.
+    `undercover` opens the prompt with `undercover_instruction`, `coordination` with
+    COORDINATION_INSTRUCTION. `additions` meant for this seller's pricing prompt follow
+    those instructions (top) or the revenue goal line (after_goal).
     """
     # List each menu item with its current price
     price_lines = "\n".join(
@@ -221,6 +228,8 @@ async def set_round_prices(
     seller_names: dict[str, str] | None = None,
     undercover: bool = False,
     coordination: bool = False,
+    undercover_instruction: str = UNDERCOVER_INSTRUCTION,
+    additions: list[PromptAddition] | None = None,
 ) -> PricingResult:
     """Ask the seller for its price list and notes for `round_number` and return them.
 
@@ -228,8 +237,9 @@ async def set_round_prices(
     After the last failure the seller keeps `current_prices` and the failure is logged.
     The price list in effect is logged as a PriceListLog. The notes are the accepted
     list's notes, or "" when the seller kept `current_prices` after failures.
-    `undercover` opens every pricing prompt with UNDERCOVER_INSTRUCTION, `coordination`
-    with COORDINATION_INSTRUCTION.
+    `undercover` opens every pricing prompt with `undercover_instruction`,
+    `coordination` with COORDINATION_INSTRUCTION. `additions` go in every pricing prompt
+    as format_pricing_prompt places them.
     """
     # Ask until the price list is valid, feeding the errors back each retry
     menu_items = list(business.menu_features)

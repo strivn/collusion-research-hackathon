@@ -171,6 +171,7 @@ def run_experiment_command(args):
             if config is not None
             else None,
             positive_control=config.positive_control if config is not None else False,
+            prompt_additions=config.prompt_additions if config is not None else None,
         )
     )
 

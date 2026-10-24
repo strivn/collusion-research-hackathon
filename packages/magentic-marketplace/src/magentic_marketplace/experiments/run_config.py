@@ -5,6 +5,8 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from magentic_marketplace.marketplace.agents.business.informant import PromptAddition
+
 RUN_CONFIG_FILENAME = "config.yml"
 
 
@@ -21,12 +23,14 @@ class UndercoverConfig(BaseModel):
     """Which seller is the undercover informant.
 
     The seller at `position` in the run's seller ids shuffled by `seed`, wrapping around.
+    `instruction` replaces UNDERCOVER_INSTRUCTION in its talk, pricing and questioning.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     seed: int
     position: int = 0
+    instruction: str | None = None
 
 
 class RunConfig(BaseModel):
@@ -49,6 +53,7 @@ class RunConfig(BaseModel):
     seller_channel: bool = False
     undercover_informant: UndercoverConfig | None = None
     positive_control: bool = False
+    prompt_additions: list[PromptAddition] = []
 
     @model_validator(mode="after")
     def _informant_needs_channel(self) -> "RunConfig":
@@ -68,6 +73,17 @@ class RunConfig(BaseModel):
                 "positive_control needs seller_channel: true, "
                 "otherwise the sellers have no seller channel to coordinate over"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _prompt_additions_apply(self) -> "RunConfig":
+        """Reject an addition no prompt of the run would show.
+
+        An undercover addition needs an undercover informant; a talk addition needs the
+        seller channel.
+        """
+        if self.prompt_additions:
+            raise NotImplementedError
         return self
 
 

@@ -153,12 +153,24 @@ def load_undercover_pick(run_folder: Path) -> UndercoverPick | None:
     return UndercoverPick.model_validate(yaml.safe_load(path.read_text()))
 
 
+def load_undercover_instruction(run_folder: Path) -> str:
+    """Return the undercover instruction the run used.
+
+    The `undercover_informant.instruction` of `run_folder`/config.yml when set;
+    UNDERCOVER_INSTRUCTION when it is unset or the folder has no config.yml.
+    """
+    raise NotImplementedError
+
+
 def format_question(
-    view: RoundView, framing: Framing, context: str | None = None
+    view: RoundView,
+    framing: Framing,
+    context: str | None = None,
+    undercover_instruction: str = UNDERCOVER_INSTRUCTION,
 ) -> str:
     """Return the question for one seller about one round.
 
-    Layout, parts separated by a blank line: UNDERCOVER_INSTRUCTION (undercover) or
+    Layout, parts separated by a blank line: `undercover_instruction` (undercover) or
     PRESSURE_QUESTION (pressured); "What you saw in round <r>: the prompt you were given
     to set your prices, and your answer." then "Prompt:" and `view.prompt`, then
     "Your answer:" and `view.response`; REPORT_REQUEST; on a retry, `context`.
@@ -201,6 +213,7 @@ async def question_seller(
     seller_ids: set[str],
     generate_struct_fn: Callable[[str, type], Awaitable[tuple[Any, Any]]],
     retries: int = 3,
+    undercover_instruction: str = UNDERCOVER_INSTRUCTION,
 ) -> InformantReport:
     """Question one seller about one round and return its checked report.
 
@@ -274,10 +287,12 @@ async def question_sellers(
     generate_struct_fn: Callable[[str, type], Awaitable[tuple[Any, Any]]],
     max_concurrency: int = 8,
     retries: int = 3,
+    undercover_instruction: str = UNDERCOVER_INSTRUCTION,
 ) -> list[InformantReport]:
     """Question every view, at most `max_concurrency` at once, one report per view.
 
-    The seller `undercover_seller_id` is questioned undercover, every other pressured.
+    The seller `undercover_seller_id` is questioned undercover, framed by
+    `undercover_instruction`, every other pressured.
     """
     # The semaphore caps the questions waiting on the LLM
     semaphore = asyncio.Semaphore(max_concurrency)
@@ -316,8 +331,9 @@ async def run_question(
     """Question the sellers of a finished run on the LLM configured in the environment.
 
     `experiment_name` is the Postgres schema, or the SQLite file path for sqlite. Reads
-    the undercover pick from and writes the reports to the current directory, the run
-    folder. Fails when the pick names no seller of the run.
+    the undercover pick and the undercover instruction (config.yml) from and writes the
+    reports to the current directory, the run folder. Fails when the pick names no
+    seller of the run.
     """
     # Read the run's sellers and views
     if db_type == "sqlite":
