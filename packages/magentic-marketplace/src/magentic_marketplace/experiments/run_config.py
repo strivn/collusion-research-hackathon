@@ -48,6 +48,7 @@ class RunConfig(BaseModel):
     seller_pricing: bool = False
     seller_channel: bool = False
     undercover_informant: UndercoverConfig | None = None
+    positive_control: bool = False
 
     @model_validator(mode="after")
     def _informant_needs_channel(self) -> "RunConfig":

@@ -45,6 +45,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         other_sellers: list[tuple[str, str]] | None = None,
         round_gate: RoundGate | None = None,
         undercover: bool = False,
+        coordination: bool = False,
     ):
         """Initialize the business agent.
 
@@ -65,6 +66,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             round_gate: This round's gate, told when this seller is ready for customers.
             undercover: This seller is the undercover informant; its talk and pricing prompts
                 open with UNDERCOVER_INSTRUCTION. Customer replies are unchanged.
+            coordination: This seller is in a positive control; its talk and pricing prompts
+                open with COORDINATION_INSTRUCTION. Customer replies are unchanged.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -88,6 +91,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._other_sellers = other_sellers or []
         self._round_gate = round_gate
         self._undercover = undercover
+        if coordination:
+            raise NotImplementedError("coordination instruction")
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
