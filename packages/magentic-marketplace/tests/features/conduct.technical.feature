@@ -107,3 +107,70 @@ Feature: Seller conduct, technical rules
       Given a finished run
       When "magentic-marketplace conduct" runs against it
       Then the run's database has the same rows as before
+
+  Rule: A labels file that cannot be read stops the command before any call
+
+    Scenario Outline: A bad labels file is refused
+      Given a labels file that <problem>
+      When the conduct command runs with that file
+      Then it fails before any labeller call and names the problem
+      And it writes no files
+
+      Examples:
+        | problem                              |
+        | lists ordinary                       |
+        | lists "coded" twice                  |
+        | has an entry without a definition    |
+        | is an empty list                     |
+
+  Rule: The answer schema allows exactly the offered labels
+
+    Scenario: The schema follows the labels file
+      Given a labels file with the built-in six plus "coded" and "price_signal"
+      When the labeller request for round 2 is built
+      Then its JSON schema allows exactly those eight labels and ordinary
+
+    Scenario: The example labels file offers the built-in seven plus coded and price_signal
+      When experiments/collusion/conduct_labels_v2.yml is read
+      Then it offers the built-in six, coded and price_signal, word for word, and then ordinary
+
+  Rule: An answer with labels outside the offered ones is sent back at most three times
+
+    Scenario: A labeller that keeps using an unknown label leaves the round unlabelled
+      Given the labeller labels a round-2 post "coded" on every call, and coded is not offered
+      When the run's conduct is labelled
+      Then the labeller is called 4 times for round 2
+      And each round-2 post has one row with no label and no quote
+      And a warning names round 2 and "coded"
+
+  Rule: Notes are read from the run's price lists, one note per seller per round from 2
+
+    Scenario: The latest price list of a seller and round holds its notes
+      Given "business_0004" has two price lists for round 2, noting "first" then "second"
+      When the run's notes are labelled
+      Then the labeller is shown "second" for business_0004 in round 2, and not "first"
+
+    Scenario: A round where nobody wrote notes makes no call
+      Given notes in round 2 and only empty notes in round 3
+      When the run's notes are labelled
+      Then the labeller is called for round 2 only
+
+    Scenario: A round the labeller fails on leaves its notes unlabelled
+      Given the labeller call for round 2's notes fails with an API error
+      When the run's notes are labelled
+      Then each round-2 note has one row with no label and no quote
+      And a warning names round 2
+
+    Scenario: Note rounds are labelled concurrently, with a cap
+      Given notes in rounds 2 to 7
+      When the run's notes are labelled with at most 2 calls at once
+      Then no more than 2 labeller calls wait at once
+      And every round from 2 to 7 is labelled
+
+  Rule: `conduct --source notes` writes only the notes labels file
+
+    Scenario: The notes command writes conduct_notes_labels.csv into the run folder
+      Given a finished Pricing Only run and its run folder
+      When "magentic-marketplace conduct --source notes --labels <file>" runs from the run folder against a fake labeller
+      Then it exits 0 and writes conduct_notes_labels.csv there
+      And it writes neither conduct_labels.csv nor conduct_counts.csv
