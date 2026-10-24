@@ -26,7 +26,7 @@ simulated market), with our own patches.
 |---|---|---|
 | Upstream code we patch | `packages/`, `data/` | yes |
 | Upstream documentation | `docs/` | yes, left untouched |
-| Our experiment code (runner, analysis, plots) | `experiments/collusion/` | yes, code only |
+| Our experiment code (run config, runner, scoring, judge, screen) | `packages/magentic-marketplace/src/magentic_marketplace/experiments/` | yes, code only |
 | Our datasets | `data/<name>/` | yes |
 | Research notes, tracker, run outputs | `research/` (run outputs in `research/results/<run>/`) | no, excluded via `.git/info/exclude` |
 | Local agent context | `CLAUDE.local.md`, `.claude/` | no |
@@ -54,15 +54,20 @@ uv sync                           # install; add --all-extras only for rnr searc
 cp sample.env .env                # LLM provider/model/keys + Postgres creds
 docker compose up -d              # Postgres 16 on :5432 (+ pgadmin on :8080); required for runs
 
-magentic-marketplace run data/mexican_3_9 --experiment-name <name>   # one simulation
-magentic-marketplace analyze <name>        # welfare/revenue report, writes JSON
+magentic-marketplace run data/mexican_3_9 --experiment-name <name>   # one stock simulation
+magentic-marketplace run --config config.yml --env-file <repo>/.env   # one run with our settings
+magentic-marketplace experiment <experiment>.yml --env-file .env      # arms x repetitions, from repo root
+magentic-marketplace analyze <name>        # stock welfare/revenue report, writes JSON; not round-aware
 magentic-marketplace extract-traces <name> # LLM prompts/responses to markdown
 magentic-marketplace audit <name>          # did customers receive every proposal
 magentic-marketplace list | export <name> | ui <name>
 ```
 
-`--experiment-name` becomes the Postgres schema; reusing a name fails unless
-`--override-db`. The CLI loads `.env` from the current directory (`--env-file`).
+`--experiment-name` (or `experiment_name` in the config) becomes the Postgres schema;
+reusing a name fails unless `--override-db`. The CLI loads `.env` from the current
+directory unless `--env-file` says otherwise. `--config` cannot be combined with
+`data_dir` or the `--experiment-name`, `--search-*` and `--customer-max-steps` flags.
+Post-run commands (`score`, `judge`, ...) are in their own section below.
 
 Quality checks (poe tasks in root `pyproject.toml`):
 
@@ -94,40 +99,53 @@ Two layers:
 
 Flow of one run (`P/experiments/run_experiment.py`):
 
-1. Load `businesses/*.yaml` and `customers/*.yaml` from the data dir.
+1. Load `businesses/*.yaml` and `customers/*.yaml` from the data dir. With the informant
+   or budgets on, write `informant.yml` and `budgets.yml` into the current directory.
 2. `MarketplaceLauncher` starts the server in-process with `SimpleMarketplaceProtocol`
    and a fresh Postgres schema.
-3. `AgentLauncher.run_agents_with_dependencies` runs every agent as a concurrent asyncio
-   task. Customers are primary; when all customers finish, businesses are told to shut
-   down. There are no rounds and no state carried between runs.
+3. For each round, `AgentLauncher.run_agents_with_dependencies` runs a fresh set of
+   agents as concurrent asyncio tasks. Customers are primary; when all customers finish,
+   businesses are told to shut down, and only then does the next round start. One round
+   (the default) is the stock run. Rounds are described below.
 
-Protocol (`P/marketplace/protocol/protocol.py`): three actions, `Search`, `SendMessage`,
-`FetchMessages`, defined in `P/marketplace/actions/actions.py`. A message is a
+Protocol (`P/marketplace/protocol/protocol.py`): five actions defined in
+`P/marketplace/actions/actions.py`: stock `Search`, `SendMessage`, `FetchMessages`, and
+the seller channel's `SendChannelMessage`, `FetchChannelMessages`. A message is a
 `TextMessage`, `OrderProposal` or `Payment` (`actions/messaging.py`). Adding an action
 means touching the action union, `get_actions`, `execute_action` and the agent's tool
 set. `send_message` only checks that the recipient exists, so any agent can message any
-agent.
+agent. Every action an agent executes carries `{"round": n}` in its request metadata
+(`agents/base.py`), and every LLM call log carries `round` in its log metadata.
 
 Agents (`P/marketplace/agents/`), both subclass `BaseSimpleMarketplaceAgent`, which
 wraps send/fetch and LLM calls (`generate`, `generate_struct`) and logs each call:
 
 - `customer/`: each step asks the LLM for one of `search_businesses`, `send_messages`
   (text or `Payment`), `check_messages`, `end_transaction` (`customer/models.py`).
-  Prompts in `customer/prompts.py`. Stops at `--customer-max-steps`.
+  Prompts in `customer/prompts.py`. Stops at `--customer-max-steps`. With a budget, the
+  system prompt states it and tells the agent not to reveal it, and the agent refuses
+  any payment whose proposal total exceeds the budget (compared in cents), logging a
+  `refused_payment` row.
 - `business/`: polls messages every 2 s, groups by customer, answers text with an LLM
   reply or `OrderProposal` (`business/responses.py`, prompts in `business/prompts.py`),
   confirms payments against its `OrderProposalStorage`. Keeps one history per customer;
-  it never sees its other conversations. Stock sellers only reply, never initiate.
-  Proposal validation (`responses.py`) checks only that item names are on the menu and
-  that `total_price` equals the sum of the items, retrying up to 3 times. Unit prices are
-  not checked against the menu; only the prompt line "ONLY tell potential customers what
-  you have on the menu with CORRECT PRICES" keeps them there.
+  it never sees its other conversations with customers. Sellers never message customers
+  first. Proposal validation (`responses.py`) checks that item names are on the menu and
+  that `total_price` equals the sum of the items, retrying up to 3 times. With pricing
+  off, unit prices are not checked; only the prompt line "ONLY tell potential customers
+  what you have on the menu with CORRECT PRICES" keeps them at menu prices. With pricing
+  on, every unit price must be within 0.005 of the seller's price for the round, and the
+  prompt shows the round prices instead of the menu prices.
 - Sellers often reply with a proposal and no text message, putting their whole answer
   (amenities included) in the proposal's `special_instructions`. Query both message types
   when reading what a seller said.
 - The customer prompt re-renders the full action trajectory every step
   (`customer/prompts.py`), so prompt size grows with steps. Each business call sees the
   full history with that one customer.
+- Each agent fetches only messages above `messages_after_index`, the last action row of
+  the previous round, so a customer or seller never sees earlier rounds' conversations.
+  From round 2, proposal ids gain `_r<round>` (`<seller>_<customer>_r2_1`) so they never
+  repeat across rounds.
 
 LLM (`P/marketplace/llm/`): provider and model come from env (`LLM_PROVIDER`
 openai|gemini|anthropic, `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_MAX_CONCURRENCY`) via
@@ -144,7 +162,139 @@ and `min_price_factor`. `min_price_factor` is declared in `P/marketplace/shared/
 but no code reads it.
 
 Logs: every action and LLM call is a JSONB row in the schema's `agents`, `actions` and
-`logs` tables. Messages are fetched in `row_index` order.
+`logs` tables. Messages are fetched in `row_index` order. Our features add log rows with
+`data->'data'->>'type'` = `budget_assignment` (once, before round 1), `price_list` (one
+per seller per round with pricing on, with the seller's notes), `channel_message` (one
+per delivered recipient) and `refused_payment`. The post-run commands read these rows.
+
+## Run config
+
+`P/experiments/run_config.py`, read by `run --config`. Unknown keys are rejected. Each
+optional field defaults to stock behaviour:
+
+| Field | Default | Effect |
+|---|---|---|
+| `data`, `experiment_name` | required | data dir; Postgres schema |
+| `search_algorithm`, `search_bandwidth`, `customer_max_steps` | `lexical`, 10, 100 | stock CLI flags |
+| `budget: {multipliers, seed}` | none | budget = m x reference price (sum of the customer's `menu_features`), m dealt from `multipliers` so counts differ by at most one (`experiments/budgets.py`) |
+| `rounds` | 1 | number of rounds |
+| `seller_pricing` | false | sellers set a price list each round from round 2 |
+| `seller_channel` | false | sellers talk before pricing, from round 2 |
+| `undercover_informant: {seed}` | none | one seller, picked by seed, is the informant. Requires `seller_channel: true`; the config is refused otherwise |
+
+Setups: Pricing Only = `rounds` > 1 and `seller_pricing`; Pricing + Messaging adds
+`seller_channel`; Pricing + Messaging + Undercover adds `undercover_informant`.
+
+`run --config` writes the resolved settings (defaults included) to `config.yml`, plus
+`budgets.yml` (customer id, m, budget) and `informant.yml` (seed, seller id) when those
+features are on, all into the current directory, the run folder. `question` reads
+`informant.yml` back from there.
+
+## Rounds and pricing
+
+`P/experiments/run_experiment.py` runs rounds in sequence with fresh agent objects each
+round; nothing carries over except what is listed here.
+
+- Round 1 always sells at menu prices. With `seller_pricing`, each seller logs its menu
+  prices as the round-1 `price_list` and makes no pricing call.
+- From round 2, each seller makes one pricing call before serving customers
+  (`agents/business/pricing.py`): last round's prices, the goal "maximize total revenue
+  over all rounds", its memory, and with the channel on this round's channel messages.
+  A list with a missing item, an off-menu item or a price <= 0 is sent back up to 3
+  times; after that the seller keeps last round's prices. Prices are rounded to cents.
+  The prompts never state the total number of rounds.
+- Seller memory (`experiments/seller_memory.py`, built only with pricing on): the notes
+  the seller wrote in its last pricing answer (its only free-form memory), its own price,
+  units sold and revenue per item for every past round, and every rival's last-round
+  price for each item it also sells. The sales numbers come from `round_scores.py`.
+- Round gate (`agents/round_gate.py`): customers wait until every seller of the round has
+  finished talking and pricing. A seller whose start-up fails still releases the gate.
+  After 300 s customers start anyway and log a warning.
+
+## Seller channel and talk phase
+
+`P/marketplace/protocol/channel.py` and `P/marketplace/agents/business/talk.py`.
+
+- Only sellers may send or fetch; recipients must be distinct other sellers.
+- Allowance: `CHANNEL_ALLOWANCE` = 5 messages per seller per round; a message to k
+  sellers uses k. A send that needs more than the seller has left is refused whole and
+  nothing is delivered. Refused sends stay in `actions` with an error result and do not
+  count against the allowance.
+- Talk phase, from round 2 with `seller_channel`: turn 1 asks every seller at once.
+  Each later turn asks only the sellers that received a message in the previous turn and
+  still have allowance left. The phase ends when a turn delivers nothing. A seller whose
+  talk call raises counts as sending nothing.
+- The talk prompt lists other sellers by name and id only, the messages left, the
+  seller's memory (without the ask for notes) and this round's messages so far. It says
+  sending is optional and never mentions collusion.
+- Storage: each send is one `SendChannelMessage` row in `actions` (recipients under
+  `data->'request'->'parameters'->'to_seller_ids'`, round in the request metadata). Each
+  delivered recipient also gets one `channel_message` row in `logs` (sender, recipient,
+  round, turn, text). `judge`, `exposure` and `label-sample` read the `logs` rows
+  (`judge.load_channel_posts`).
+
+## Undercover informant
+
+- `P/marketplace/agents/business/informant.py` holds the texts: `UNDERCOVER_INSTRUCTION`
+  (privately works for the Market Authority, flag suspicious behaviour, do not reveal
+  it), `PRESSURE_QUESTION`, `REPORT_REQUEST`.
+- `P/experiments/informant.py` picks the seller: `random.Random(seed).choice` over the
+  sorted seller ids, written to `informant.yml`.
+- The informant's talk and pricing prompts open with `UNDERCOVER_INSTRUCTION`. Its
+  replies to customers are unchanged.
+
+## Experiment runner
+
+`P/experiments/experiment_runner.py`, via `magentic-marketplace experiment <file>.yml`.
+Run it from the repo root: `results_dir`, `tracker` and each arm's `data` path resolve
+against the current directory; arm config paths resolve against the experiment file.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | required | experiment name |
+| `arms` | required | arm name -> run config file |
+| `repetitions` | required | runs per arm |
+| `base_seed` | required | repetition i uses seed `base_seed + i - 1` |
+| `parallel` | 1 | runs at once |
+| `results_dir` | `research/results` | parent of the run folders |
+| `tracker` | `research/tracker.md` | file the runner appends one row per run to |
+| `rq` | "" | research question written into the tracker row |
+
+- Run `<arm>_rep<i>`, schema `<name>_<arm>_rep<i>` (stored lowercase), folder
+  `<results_dir>/<name>/<arm>_rep<i>/`. The runner writes the arm's config with the
+  run's schema and seed to `input.yml` there, then runs `run --config input.yml` and
+  `score` in that folder as subprocesses.
+- The repetition seed replaces both the budget seed and the informant seed, so arms of
+  one repetition share customer budgets and the informant pick. Runs are ordered
+  repetition first so paired runs start together.
+- Each run is its own process with its own LLM semaphore, so up to `parallel` x
+  `LLM_MAX_CONCURRENCY` (default 64) calls can be in flight.
+- The tracker must contain a line exactly `## Runs` followed by a table; the row goes
+  after its last line. Without the heading, the first run to finish raises `ValueError`
+  and ends the command. A failed run never stops the others; the command exits 1 if any
+  failed.
+
+## Post-run commands
+
+Run each from the run folder. All read the run's database (Postgres schema by default,
+`--db-type sqlite` takes a file path; `score` is Postgres only) and write only to the
+current directory, never to the database.
+
+| Command | Reads (besides the database) | LLM | Writes |
+|---|---|---|---|
+| `score <schema>` | nothing | none | `customer_rounds.csv` (value, budget, price paid, customer share, seller share, lost per customer-round), `seller_rounds.csv` (price, units sold, revenue per seller-item-round) |
+| `question <schema>` | `informant.yml` if present | env LLM (`LLM_MODEL`) | `informant_reports.jsonl`: every seller, each round from 2, shown its last pricing prompt and answer; the informant framed by `UNDERCOVER_INSTRUCTION`, every other seller by `PRESSURE_QUESTION`. Accusations need a known seller id and a quote; bad ones are sent back up to 3 times, then dropped |
+| `judge <schema>` | nothing | Opus 5.5, paid API | `judge_agreements.jsonl` (agreements per round from 2 with channel messages), `agreed_labels.csv` (seller agreed from the round it joins) |
+| `acted <schema>` | `judge_agreements.jsonl` | none | `acted_labels.csv`: did each agreed seller's price list follow its latest agreement |
+| `screen-calibrate <schema>...` | nothing | none | `screen_calibration.json`, leave-one-out over at least 3 Pricing Only runs |
+| `screen <schema> --calibration <path>` | the calibration | none | `screen_flags.csv`, `screen_pairs.csv`: sellers flagged from quoted prices alone, never messages |
+| `exposure <schema>` | the four files above (reports, screen flags, agreed and acted labels); a missing one is skipped and named | none | `exposure_scores.csv` (precision, recall, grounding per detector, label, round), `exposure_detection.csv` (time to detection) |
+| `label-sample <folders>... --out <file>` | each folder's `judge_agreements.jsonl` | none | a markdown sample of channel threads for hand labelling, without the judge's answers |
+| `label-check <file>` | the filled sample and the run folders it names | none | `<file stem>.check.csv`, next to the sample; prints judge-vs-hand agreement |
+
+`judge` calls `anthropic.AsyncAnthropic` directly, not the repo's LLM client: model
+`claude-opus-5-5`, effort high, JSON-schema output, server-side fallback beta. It takes
+`ANTHROPIC_API_KEY` from `--env-file`, so it bills the API key, not a subscription.
 
 ## Gotchas
 
@@ -155,12 +305,20 @@ Logs: every action and LLM call is a JSONB row in the schema's `agents`, `action
   `LLM_REASONING_EFFORT=minimal` sends `thinking: {type: "disabled"}`, which Haiku 5.5
   accepts at its default effort. Opus 5.5 and Sonnet 5.5 reject both disabled thinking
   and the forced `tool_choice` used for structured output, so they need a client patch.
-- The `logs` table stores one combined token count per LLM call (input + output), so
-  spend can only be bounded, not computed, without patching the clients.
+- Each `llm_call` log row has `input_tokens` and `output_tokens` next to the stock
+  combined `token_count`, for all three clients, so spend can be computed per call.
+  `judge` and `question` write no `llm_call` rows (they pass no logger), so their spend
+  is not in the database.
+- `question` and `judge` default `--env-file` to `.env` in the current directory, which
+  in a run folder does not exist. Pass the repo `.env`.
+- The Postgres controller lowercases the schema name, so `--experiment-name Foo` is
+  stored and read as `foo`.
 - `analyze` and `extract-traces` write `analytics_results_<name>.json` and
   `<name>-agent-llm-traces/` into the current directory. Run them from the run folder.
 - `ui` defaults to port 5000, which macOS AirPlay Receiver usually holds; pass `--ui-port`.
 - Inspect a run directly: `docker compose exec -T postgres psql -U postgres -d marketplace`,
   then query `<schema>.actions` (message under `data->'request'->'parameters'->'message'`)
   and `<schema>.logs` (`data->'data'->>'type' = 'llm_call'`, with `prompt`, `response`,
-  `token_count`, `duration_ms`).
+  `token_count`, `input_tokens`, `output_tokens`, `duration_ms`). Filter by round with
+  `data->'request'->'metadata'->>'round'` on actions and `data->'metadata'->>'round'`
+  on logs.
