@@ -237,7 +237,9 @@ def load_label_definitions(path: Path) -> LabelDefinitions:
         entries = yaml.safe_load(path.read_text())
     except yaml.YAMLError as e:
         raise ValueError(f"{path} is not valid YAML: {e}") from e
-    if not isinstance(entries, list) or not entries:
+    if not isinstance(entries, list):
+        raise ValueError(f"{path} is not a YAML list of name and definition entries")
+    if not entries:
         raise ValueError(f"{path} is an empty list; it must list at least one label")
 
     # Each entry is a mapping of exactly name and definition, both non-empty text
