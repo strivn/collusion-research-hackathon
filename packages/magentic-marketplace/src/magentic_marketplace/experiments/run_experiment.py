@@ -69,8 +69,13 @@ async def run_marketplace_experiment(
     seller_pricing: bool = False,
     seller_channel: bool = False,
     undercover_informant: UndercoverConfig | None = None,
+    positive_control: bool = False,
 ):
-    """Run a marketplace experiment using YAML configuration files."""
+    """Run a marketplace experiment using YAML configuration files.
+
+    `positive_control` opens the talk and pricing prompts of every seller except the
+    undercover one with COORDINATION_INSTRUCTION.
+    """
     # Load businesses and customers from YAML files
     data_dir = Path(data_dir)
     businesses_dir = data_dir / "businesses"
@@ -190,6 +195,9 @@ async def run_marketplace_experiment(
                         other_sellers=other_sellers[business.id],
                         round_gate=round_gate,
                         undercover=business.id == undercover_seller_id,
+                        # Instruct every seller of a positive control but the undercover one
+                        coordination=positive_control
+                        and business.id != undercover_seller_id,
                     )
                     for business in businesses
                 ]

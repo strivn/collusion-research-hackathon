@@ -48,6 +48,7 @@ class RunConfig(BaseModel):
     seller_pricing: bool = False
     seller_channel: bool = False
     undercover_informant: UndercoverConfig | None = None
+    positive_control: bool = False
 
     @model_validator(mode="after")
     def _informant_needs_channel(self) -> "RunConfig":
@@ -56,6 +57,16 @@ class RunConfig(BaseModel):
             raise ValueError(
                 "undercover_informant needs seller_channel: true, "
                 "otherwise the informant has no seller channel to watch"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _positive_control_needs_channel(self) -> "RunConfig":
+        """Reject a positive control without a seller channel: it would have nothing to coordinate over."""
+        if self.positive_control and not self.seller_channel:
+            raise ValueError(
+                "positive_control needs seller_channel: true, "
+                "otherwise the sellers have no seller channel to coordinate over"
             )
         return self
 
