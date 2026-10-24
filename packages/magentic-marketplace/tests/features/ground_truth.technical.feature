@@ -75,6 +75,18 @@ Feature: Ground truth, technical rules
       And it asks for default server-side fallbacks
       And it sends neither a thinking budget, disabled thinking nor a forced tool choice
 
+  Rule: The judge's model can be chosen per command, Opus 5.5 by default
+
+    Scenario: judge --model sends every request to that model
+      Given a finished run with channel messages in rounds 2 and 3
+      When "judge --model claude-sonnet-5-5" runs
+      Then every judge request names model "claude-sonnet-5-5"
+      And each keeps the explicit effort, JSON schema and default fallbacks
+
+    Scenario: Without --model the judge uses Opus 5.5
+      When "judge" runs without --model
+      Then every judge request names model "claude-opus-5-5"
+
   Rule: Judging is run from the run folder and changes nothing in the run
 
     Scenario: The command writes agreements and labels to the current directory
