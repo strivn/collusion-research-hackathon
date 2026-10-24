@@ -11,6 +11,7 @@ files the real `run` and `score` commands would write into the cwd.
 
 import asyncio
 import os
+import random
 import re
 import sys
 from pathlib import Path
@@ -26,11 +27,15 @@ from magentic_marketplace.experiments.experiment_runner import (
     plan_runs,
     run_experiment,
 )
-from magentic_marketplace.experiments.utils import load_customers_from_yaml
+from magentic_marketplace.experiments.utils import (
+    load_businesses_from_yaml,
+    load_customers_from_yaml,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MEXICAN_3_9 = REPO_ROOT / "data" / "mexican_3_9"
 MEXICAN_10_30 = REPO_ROOT / "data" / "mexican_10_30"
+SELLER_IDS = sorted(b.id for b in load_businesses_from_yaml(MEXICAN_3_9 / "businesses"))
 MULTIPLIERS = [1.25, 1.5, 2.0]
 MODEL = "claude-haiku-5-5"
 CLI_MODULE = "magentic_marketplace.cli"
@@ -493,11 +498,13 @@ async def test_paired_seeds_give_same_budgets(workspace, monkeypatch):
     assert seed_of("S2_rep1") != seed_of("S2_rep2")
 
 
-async def test_each_repetition_plants_its_own_undercover_seller(workspace, monkeypatch):
-    """Scenario: Each repetition of an experiment plants its own undercover seller."""
-    # Given an experiment with an S4 arm, base seed 7 and 3 repetitions
+# Rule: Each repetition plants a different seller until every seller has been planted
+
+
+def write_undercover_arm(workspace: Path) -> None:
+    """Write an Undercover arm (channel, pricing and informant on) to the config dir."""
     write_yaml(
-        workspace / "configs" / "s4.yml",
+        workspace / "configs" / "undercover.yml",
         arm_config(
             str(MEXICAN_3_9),
             seed=333,
@@ -507,27 +514,144 @@ async def test_each_repetition_plants_its_own_undercover_seller(workspace, monke
             undercover_informant={"seed": 444},
         ),
     )
-    FakeMarketplace().install(monkeypatch)
-    config = make_config(arms={"S2": "s2.yml", "S4": "s4.yml"}, base_seed=7)
 
-    # When its runs are planned
-    outcomes = await run_in(workspace, config)
 
-    def input_of(run_name: str) -> dict:
-        """Return the run's input.yml."""
-        folder = run_folder(workspace, run_name)
-        return yaml.safe_load((folder / "input.yml").read_text())
+def undercover_config(**overrides) -> ExperimentConfig:
+    """Experiment with only the Undercover arm, base seed 7, overridable."""
+    return make_config(arms={"Undercover": "undercover.yml"}, **overrides)
 
-    # Then repetitions 1, 2 and 3 use informant seeds 7, 8 and 9
-    assert [o.status for o in outcomes] == ["done"] * 6
-    informant_seeds = [
-        input_of(f"S4_rep{i}")["undercover_informant"]["seed"] for i in (1, 2, 3)
+
+def input_of(workspace: Path, run_name: str, name: str = "exp1") -> dict:
+    """Return the run's input.yml."""
+    folder = run_folder(workspace, run_name, name)
+    return yaml.safe_load((folder / "input.yml").read_text())
+
+
+def seller_at(seed: int, position: int) -> str:
+    """Return the seller at `position` of the sorted seller ids shuffled by `seed`.
+
+    Computed here, independent of `pick_undercover_seller`.
+    """
+    ids = list(SELLER_IDS)
+    random.Random(seed).shuffle(ids)
+    return ids[position % len(ids)]
+
+
+def planted_by(workspace: Path, run_name: str, name: str = "exp1") -> str:
+    """Return the seller a run plants, from the seed and position in its input.yml."""
+    informant = input_of(workspace, run_name, name)["undercover_informant"]
+    return seller_at(informant["seed"], informant.get("position", 0))
+
+
+def test_plan_informant_seed_is_the_base_seed_and_position_the_repetition():
+    """Rule: Each repetition plants a different seller ... (planning part).
+
+    Every repetition shuffles with the base seed; repetition i takes position i - 1.
+    """
+    specs = plan_runs(undercover_config(repetitions=3, base_seed=7))
+
+    assert [(s.informant_seed, s.informant_position) for s in specs] == [
+        (7, 0),
+        (7, 1),
+        (7, 2),
     ]
-    assert informant_seeds == [7, 8, 9]
-    # The budget seed moves with it, and the arm without an informant gets none
-    assert [input_of(f"S4_rep{i}")["budget"]["seed"] for i in (1, 2, 3)] == [7, 8, 9]
+
+
+async def test_input_yml_carries_the_informant_seed_and_position(
+    workspace, monkeypatch
+):
+    """Rule: Each repetition plants a different seller ... (input.yml part)."""
+    write_undercover_arm(workspace)
+    FakeMarketplace().install(monkeypatch)
+
+    await run_in(workspace, undercover_config(repetitions=3, base_seed=7))
+
+    informants = [
+        input_of(workspace, f"Undercover_rep{i}")["undercover_informant"]
+        for i in (1, 2, 3)
+    ]
+    assert informants == [
+        {"seed": 7, "position": 0},
+        {"seed": 7, "position": 1},
+        {"seed": 7, "position": 2},
+    ]
+
+
+async def test_three_repetitions_plant_three_different_sellers(workspace, monkeypatch):
+    """Scenario: 3 repetitions on mexican_3_9 plant 3 different sellers."""
+    # Given an experiment with an Undercover arm on "mexican_3_9", base seed 7 and 3
+    # repetitions
+    write_undercover_arm(workspace)
+    FakeMarketplace().install(monkeypatch)
+
+    # When the experiment runs
+    outcomes = await run_in(workspace, undercover_config(repetitions=3, base_seed=7))
+
+    # Then repetitions 1, 2 and 3 plant 3 different sellers
+    assert [o.status for o in outcomes] == ["done"] * 3
+    planted = [planted_by(workspace, f"Undercover_rep{i}") for i in (1, 2, 3)]
+    assert len(set(planted)) == 3
+    assert set(planted) <= set(SELLER_IDS)
+
+
+async def test_same_base_seed_plants_same_sellers_in_same_order(workspace, monkeypatch):
+    """Scenario: The same base seed plants the same sellers in the same order."""
+    # Given two experiments with an Undercover arm on "mexican_3_9", base seed 7 and 3
+    # repetitions
+    write_undercover_arm(workspace)
+    FakeMarketplace().install(monkeypatch)
+
+    # When both experiments run
+    for name in ("exp1", "exp2"):
+        await run_in(
+            workspace, undercover_config(name=name, repetitions=3, base_seed=7)
+        )
+
+    # Then repetition 1, 2 and 3 plant the same seller in both
     for i in (1, 2, 3):
-        assert input_of(f"S2_rep{i}").get("undercover_informant") is None
+        run_name = f"Undercover_rep{i}"
+        assert planted_by(workspace, run_name, "exp1") == planted_by(
+            workspace, run_name, "exp2"
+        )
+
+
+async def test_more_repetitions_than_sellers_wraps_around(workspace, monkeypatch):
+    """Scenario: More repetitions than sellers wraps around to the first."""
+    # Given an experiment with an Undercover arm on "mexican_3_9", base seed 7 and 10
+    # repetitions
+    write_undercover_arm(workspace)
+    FakeMarketplace().install(monkeypatch)
+
+    # When the experiment runs
+    await run_in(workspace, undercover_config(repetitions=10, base_seed=7))
+
+    planted = [planted_by(workspace, f"Undercover_rep{i}") for i in range(1, 11)]
+    # Then repetitions 1 to 9 plant each of the 9 sellers once
+    assert sorted(planted[:9]) == SELLER_IDS
+    # And repetition 10 plants the same seller as repetition 1
+    assert planted[9] == planted[0]
+
+
+async def test_budget_seed_per_repetition_is_unchanged(workspace, monkeypatch):
+    """Scenario: The budget seed per repetition is unchanged."""
+    # Given an experiment with an Undercover arm, base seed 7 and 3 repetitions
+    write_undercover_arm(workspace)
+    FakeMarketplace().install(monkeypatch)
+    config = make_config(
+        arms={"S2": "s2.yml", "Undercover": "undercover.yml"}, base_seed=7
+    )
+
+    # When the experiment runs
+    await run_in(workspace, config)
+
+    # Then repetitions 1, 2 and 3 use budget seeds 7, 8 and 9
+    budget_seeds = [
+        input_of(workspace, f"Undercover_rep{i}")["budget"]["seed"] for i in (1, 2, 3)
+    ]
+    assert budget_seeds == [7, 8, 9]
+    # The arm without an informant gets none
+    for i in (1, 2, 3):
+        assert input_of(workspace, f"S2_rep{i}").get("undercover_informant") is None
 
 
 # Rule: Runs execute in parallel up to a cap
