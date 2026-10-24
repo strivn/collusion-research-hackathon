@@ -24,7 +24,10 @@ from magentic_marketplace.experiments.utils import (
     load_customers_from_yaml,
 )
 from magentic_marketplace.marketplace.agents import BusinessAgent, CustomerAgent
-from magentic_marketplace.marketplace.agents.business.informant import PromptAddition
+from magentic_marketplace.marketplace.agents.business.informant import (
+    UNDERCOVER_INSTRUCTION,
+    PromptAddition,
+)
 from magentic_marketplace.marketplace.agents.business.pricing import SellerMemory
 from magentic_marketplace.marketplace.agents.business.talk import TalkPhase
 from magentic_marketplace.marketplace.agents.round_gate import RoundGate
@@ -105,6 +108,14 @@ async def run_marketplace_experiment(
             ),
             Path.cwd(),
         )
+
+    # Use the configured undercover instruction, the default when unset
+    undercover_instruction = (
+        undercover_informant.instruction
+        if undercover_informant is not None
+        and undercover_informant.instruction is not None
+        else UNDERCOVER_INSTRUCTION
+    )
 
     # Assign customer budgets and record them in the run folder
     assignments: list[CustomerBudget] = []
@@ -202,6 +213,8 @@ async def run_marketplace_experiment(
                         # Instruct every seller of a positive control but the undercover one
                         coordination=positive_control
                         and business.id != undercover_seller_id,
+                        undercover_instruction=undercover_instruction,
+                        prompt_additions=prompt_additions,
                     )
                     for business in businesses
                 ]

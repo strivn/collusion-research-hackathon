@@ -82,8 +82,22 @@ class RunConfig(BaseModel):
         An undercover addition needs an undercover informant; a talk addition needs the
         seller channel.
         """
-        if self.prompt_additions:
-            raise NotImplementedError
+        if (
+            any(a.sellers == "undercover" for a in self.prompt_additions)
+            and self.undercover_informant is None
+        ):
+            raise ValueError(
+                "prompt_additions for the undercover seller need undercover_informant, "
+                "otherwise no seller would see them"
+            )
+        if (
+            any("talk" in a.prompts for a in self.prompt_additions)
+            and not self.seller_channel
+        ):
+            raise ValueError(
+                "prompt_additions in the talk prompt need seller_channel: true, "
+                "otherwise the sellers never talk"
+            )
         return self
 
 

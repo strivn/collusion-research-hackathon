@@ -51,7 +51,15 @@ def addition_texts(
     `undercover` says whether the seller is the undercover one, which decides whether
     ordinary and undercover additions reach it.
     """
-    raise NotImplementedError
+    # Keep the additions for this prompt and place whose sellers include this one
+    seller_kind = "undercover" if undercover else "ordinary"
+    return [
+        addition.text
+        for addition in additions
+        if prompt in addition.prompts
+        and addition.place == place
+        and addition.sellers in ("all", seller_kind)
+    ]
 
 
 PRESSURE_QUESTION = (

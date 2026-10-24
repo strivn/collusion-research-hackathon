@@ -20,6 +20,10 @@ from magentic_marketplace.experiments.informant import (
     INFORMANT_FILENAME,
     UndercoverPick,
 )
+from magentic_marketplace.experiments.run_config import (
+    RUN_CONFIG_FILENAME,
+    load_run_config,
+)
 from magentic_marketplace.marketplace.agents.business.informant import (
     PRESSURE_QUESTION,
     REPORT_REQUEST,
@@ -159,7 +163,13 @@ def load_undercover_instruction(run_folder: Path) -> str:
     The `undercover_informant.instruction` of `run_folder`/config.yml when set;
     UNDERCOVER_INSTRUCTION when it is unset or the folder has no config.yml.
     """
-    raise NotImplementedError
+    # Read the instruction from the run's config.yml when it has one
+    path = run_folder / RUN_CONFIG_FILENAME
+    if path.exists():
+        informant = load_run_config(path).undercover_informant
+        if informant is not None and informant.instruction is not None:
+            return informant.instruction
+    return UNDERCOVER_INSTRUCTION
 
 
 def format_question(
@@ -177,7 +187,7 @@ def format_question(
     """
     # Framing first, then the seller's own view, then the ask, then any sent-back problems
     parts = [
-        UNDERCOVER_INSTRUCTION if framing == "undercover" else PRESSURE_QUESTION,
+        undercover_instruction if framing == "undercover" else PRESSURE_QUESTION,
         f"What you saw in round {view.round}: the prompt you were given to set your prices, and your answer.",
         f"Prompt:\n{view.prompt}",
         f"Your answer:\n{view.response}",
@@ -223,7 +233,9 @@ async def question_seller(
     the rest as dropped.
     """
     # Ask until the answer has no problems, feeding the problems back each retry
-    first_question = format_question(view, framing)
+    first_question = format_question(
+        view, framing, undercover_instruction=undercover_instruction
+    )
     question = first_question
     answer: InformantAnswer | None = None
     error: str | None = None
@@ -243,6 +255,7 @@ async def question_seller(
             view,
             framing,
             context=SENT_BACK_HEADER + "\n- " + "\n- ".join(problems),
+            undercover_instruction=undercover_instruction,
         )
 
     if answer is None:
@@ -303,7 +316,12 @@ async def question_sellers(
         )
         async with semaphore:
             return await question_seller(
-                view, framing, seller_ids, generate_struct_fn, retries=retries
+                view,
+                framing,
+                seller_ids,
+                generate_struct_fn,
+                retries=retries,
+                undercover_instruction=undercover_instruction,
             )
 
     return list(await asyncio.gather(*(question_view(view) for view in views)))
@@ -375,6 +393,7 @@ async def run_question(
         seller_ids,
         generate_struct_fn,
         max_concurrency=max_concurrency,
+        undercover_instruction=load_undercover_instruction(run_folder),
     )
     for report in reports:
         if report.error or report.dropped:

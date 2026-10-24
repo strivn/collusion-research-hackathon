@@ -100,6 +100,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._round_gate = round_gate
         self._undercover = undercover
         self._coordination = coordination
+        self._undercover_instruction = undercover_instruction
+        self._prompt_additions = prompt_additions or []
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
@@ -275,6 +277,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             channel.messages,
             undercover=self._undercover,
             coordination=self._coordination,
+            undercover_instruction=self._undercover_instruction,
+            additions=self._prompt_additions,
         )
         decision, _ = await self.generate_struct(prompt, TalkDecision)
 
@@ -323,6 +327,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                         seller_names=dict(self._other_sellers),
                         undercover=self._undercover,
                         coordination=self._coordination,
+                        undercover_instruction=self._undercover_instruction,
+                        additions=self._prompt_additions,
                     )
                     round_prices = result.prices
                     self.round_notes = result.notes
