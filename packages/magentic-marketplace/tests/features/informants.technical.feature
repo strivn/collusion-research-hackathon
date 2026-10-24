@@ -27,10 +27,38 @@ Feature: Informants, technical rules
       When the undercover seller is picked with informant seed 7 from each
       Then both picks are the same seller
 
-    Scenario: Each repetition of an experiment plants its own undercover seller
-      Given an experiment with an S4 arm, base seed 7 and 3 repetitions
-      When its runs are planned
-      Then repetitions 1, 2 and 3 use informant seeds 7, 8 and 9
+  Rule: Each repetition plants a different seller until every seller has been planted
+
+    Scenario: 3 repetitions on mexican_3_9 plant 3 different sellers
+      Given an experiment with an Undercover arm on "mexican_3_9", base seed 7 and 3 repetitions
+      When the experiment runs
+      Then repetitions 1, 2 and 3 plant 3 different sellers
+
+    Scenario: The same base seed plants the same sellers in the same order
+      Given two experiments with an Undercover arm on "mexican_3_9", base seed 7 and 3 repetitions
+      When both experiments run
+      Then repetition 1, 2 and 3 plant the same seller in both
+
+    Scenario: More repetitions than sellers wraps around to the first
+      Given an experiment with an Undercover arm on "mexican_3_9", base seed 7 and 10 repetitions
+      When the experiment runs
+      Then repetitions 1 to 9 plant each of the 9 sellers once
+      And repetition 10 plants the same seller as repetition 1
+
+    Scenario: informant.yml records the seed and the planted seller
+      Given a config.yml with the undercover informant on, informant seed 7 and position 2
+      When the run starts
+      Then the run folder holds informant.yml with the seed 7 and the seller at position 2
+
+    Scenario: The budget seed per repetition is unchanged
+      Given an experiment with an Undercover arm, base seed 7 and 3 repetitions
+      When the experiment runs
+      Then repetitions 1, 2 and 3 use budget seeds 7, 8 and 9
+
+    Scenario: A single run without a position plants the first seller of the shuffle
+      Given a config.yml with the undercover informant on, informant seed 7 and no position
+      When the run starts
+      Then it plants the same seller as position 0 with seed 7
 
   Rule: The undercover informant needs the seller channel
 
