@@ -671,7 +671,7 @@ def main():
     # judge subcommand
     judge_parser = subparsers.add_parser(
         "judge",
-        help="Find price agreements in a finished run's channel messages with Opus 5.5 by default; writes agreements and agreed labels to the current directory",
+        help="Find price agreements in a finished run's channel messages with Sonnet 5.5 by default; writes agreements and agreed labels to the current directory",
     )
     judge_parser.set_defaults(func=run_judge_command)
     judge_parser.add_argument(
@@ -719,7 +719,7 @@ def main():
     # conduct subcommand
     conduct_parser = subparsers.add_parser(
         "conduct",
-        help="Label what each seller says on the channel of a finished run with Opus 5.5 by default; writes conduct labels and post counts to the current directory",
+        help="Label what each seller says on the channel of a finished run with Sonnet 5.5 by default; writes conduct labels and post counts to the current directory",
     )
     conduct_parser.set_defaults(func=run_conduct_command)
     conduct_parser.add_argument(

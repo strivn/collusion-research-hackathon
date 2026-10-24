@@ -9,7 +9,7 @@ ones is sent back at most three times" and "Notes are read from the run's price 
 one note per seller per round from 2", with supporting tests for "A labels file that
 cannot be read stops the command before any call" and "`conduct --source notes` writes
 only the notes labels file", and the notes side of "The labeller's model can be chosen
-per command, Opus 5.5 by default". The CLI scenarios ("A bad labels file is refused", "The
+per command, Sonnet 5.5 by default". The CLI scenarios ("A bad labels file is refused", "The
 notes command writes conduct_notes_labels.csv into the run folder") live in
 tests/test_cli_conduct_labels.py.
 
@@ -307,7 +307,7 @@ class LabellerFactory:
 def conduct_in(
     monkeypatch: pytest.MonkeyPatch, run_folder: Path, labeller: FakeLabeller
 ) -> LabellerFactory:
-    """Make `run_conduct` work from `run_folder` with `labeller` as its Opus call."""
+    """Make `run_conduct` work from `run_folder` with `labeller` as its labeller call."""
     monkeypatch.chdir(run_folder)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     factory = LabellerFactory(labeller)
@@ -1151,9 +1151,9 @@ async def test_note_rounds_are_labelled_concurrently_with_a_cap():
         assert result.labels == [note_row(n, "ordinary", n.text)]
 
 
-# Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+# Rule: The labeller's model can be chosen per command, Sonnet 5.5 by default
 
-SONNET = "claude-sonnet-5-5"
+OPUS = "claude-opus-5-5"
 
 
 async def test_notes_labeller_is_made_for_the_chosen_model(
@@ -1165,16 +1165,16 @@ async def test_notes_labeller_is_made_for_the_chosen_model(
     labeller = FakeLabeller(label_every_note("ordinary"))
     factory = conduct_in(monkeypatch, run_folder, labeller)
 
-    # When the run's notes are labelled with model "claude-sonnet-5-5"
-    await run_conduct(str(db_path), db_type="sqlite", source="notes", model=SONNET)
+    # When the run's notes are labelled with model "claude-opus-5-5"
+    await run_conduct(str(db_path), db_type="sqlite", source="notes", model=OPUS)
 
     # Then the labeller for every notes round is made for that model
-    assert factory.models == [SONNET]
+    assert factory.models == [OPUS]
     assert len(labeller.prompts) == 2
 
 
-async def test_notes_labeller_defaults_to_opus(tmp_path, run_folder, monkeypatch):
-    """Scenario: Without --model the labeller uses Opus 5.5 (notes, run_conduct)."""
+async def test_notes_labeller_defaults_to_sonnet(tmp_path, run_folder, monkeypatch):
+    """Scenario: Without --model the labeller uses Sonnet 5.5 (notes, run_conduct)."""
     db_path = tmp_path / "run.db"
     await write_notes_run(db_path, rounds=3)
     factory = conduct_in(
@@ -1183,4 +1183,4 @@ async def test_notes_labeller_defaults_to_opus(tmp_path, run_folder, monkeypatch
 
     await run_conduct(str(db_path), db_type="sqlite", source="notes")
 
-    assert factory.models == ["claude-opus-5-5"]
+    assert factory.models == ["claude-sonnet-5-5"]

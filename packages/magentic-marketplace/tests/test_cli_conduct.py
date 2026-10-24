@@ -4,7 +4,7 @@ Covers, through the real CLI in a subprocess, the technical Rule "Conduct is run
 run folder and changes nothing in the run", the scenario "An informant.yml naming no
 seller of the run stops the command" of the Rule "The undercover seller is read from the
 run folder's informant.yml", and the posts scenarios of the Rule "The labeller's model
-can be chosen per command, Opus 5.5 by default".
+can be chosen per command, Sonnet 5.5 by default".
 
 Each run is a small SQLite file: three mexican_3_9 sellers (business_0001, business_0002,
 business_0004), one customer, an action row per round, a `PriceListLog` row per seller
@@ -96,7 +96,7 @@ ANSWER = {
 }
 LABEL_COLUMNS = ["round", "sender", "recipients", "turn", "label", "quote", "role"]
 COUNT_COLUMNS = ["seller_id", "round", "posts_sent", "role"]
-SONNET = "claude-sonnet-5-5"
+OPUS = "claude-opus-5-5"
 TIMEOUT = 120
 
 
@@ -398,7 +398,7 @@ async def test_command_writes_both_files_into_the_run_folder(
         [SELLER_2, "3", "0", "ordinary"],
         [SELLER_4, "3", "0", "undercover"],
     ]
-    # One Opus 5.5 call, for round 2, showing each post once
+    # One Sonnet 5.5 call, for round 2, showing each post once
     assert labeller_server.paths == ["/v1/messages"]
     assert labeller_server.requests[0]["model"] == JUDGE_MODEL
     (prompt,) = labeller_server.prompts()
@@ -452,7 +452,7 @@ async def test_informant_naming_no_seller_of_the_run_stops_the_command(
     assert files_besides_the_database(run_folder) == before
 
 
-# Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+# Rule: The labeller's model can be chosen per command, Sonnet 5.5 by default
 
 
 async def test_conduct_model_option_sends_every_request_to_that_model(
@@ -463,13 +463,13 @@ async def test_conduct_model_option_sends_every_request_to_that_model(
     db_path = run_folder / "run.db"
     await write_run(db_path, channel_rounds=(2, 3))
 
-    # When "conduct --model claude-sonnet-5-5" runs
-    result = conduct(run_folder, db_path, labeller_server, "--model", SONNET)
+    # When "conduct --model claude-opus-5-5" runs
+    result = conduct(run_folder, db_path, labeller_server, "--model", OPUS)
 
-    # Then every labeller request names model "claude-sonnet-5-5"
+    # Then every labeller request names model "claude-opus-5-5"
     assert result.returncode == 0, result.stderr
     assert labeller_server.paths == ["/v1/messages"] * 2
-    assert [request["model"] for request in labeller_server.requests] == [SONNET] * 2
+    assert [request["model"] for request in labeller_server.requests] == [OPUS] * 2
     # The judge's effort, token limit, JSON schema and fallbacks stay as they were
     for request, beta in zip(
         labeller_server.requests, labeller_server.betas, strict=True
@@ -483,17 +483,17 @@ async def test_conduct_model_option_sends_every_request_to_that_model(
         assert FALLBACK_BETA in beta
 
 
-async def test_conduct_without_model_uses_opus(run_folder, labeller_server):
-    """Scenario: Without --model the labeller uses Opus 5.5."""
+async def test_conduct_without_model_uses_sonnet(run_folder, labeller_server):
+    """Scenario: Without --model the labeller uses Sonnet 5.5."""
     db_path = run_folder / "run.db"
     await write_run(db_path, channel_rounds=(2, 3))
 
     # When "conduct" runs without --model
     result = conduct(run_folder, db_path, labeller_server)
 
-    # Then every labeller request names model "claude-opus-5-5"
+    # Then every labeller request names model "claude-sonnet-5-5"
     assert result.returncode == 0, result.stderr
     assert labeller_server.paths == ["/v1/messages"] * 2
     assert [request["model"] for request in labeller_server.requests] == [
-        "claude-opus-5-5"
+        "claude-sonnet-5-5"
     ] * 2

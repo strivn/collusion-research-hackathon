@@ -2,7 +2,7 @@
 
 Covers, through the real CLI in a subprocess, the technical Rules "Judging is run from
 the run folder and changes nothing in the run" and "The judge's model can be chosen per
-command, Opus 5.5 by default".
+command, Sonnet 5.5 by default".
 
 Each run is a small SQLite file: three mexican_3_9 sellers (business_0001, business_0002,
 business_0004), one customer, an action row per round, a `PriceListLog` row per seller
@@ -92,7 +92,7 @@ ANSWER = {
         }
     ]
 }
-SONNET = "claude-sonnet-5-5"
+OPUS = "claude-opus-5-5"
 TIMEOUT = 120
 
 
@@ -371,7 +371,7 @@ async def test_judge_command_writes_agreements_and_labels(run_folder, judge_serv
         (SELLER_2, 3): "true",
         (SELLER_4, 3): "true",
     }
-    # One Opus 5.5 call, for round 2, showing the round's message once
+    # One Sonnet 5.5 call, for round 2, showing the round's message once
     assert judge_server.paths == ["/v1/messages"]
     assert judge_server.requests[0]["model"] == JUDGE_MODEL
     (prompt,) = judge_server.prompts()
@@ -398,7 +398,7 @@ async def test_run_database_is_untouched(run_folder, judge_server):
     assert after["agents"] == before["agents"]
 
 
-# Rule: The judge's model can be chosen per command, Opus 5.5 by default
+# Rule: The judge's model can be chosen per command, Sonnet 5.5 by default
 
 
 async def test_judge_model_option_sends_every_request_to_that_model(
@@ -409,13 +409,13 @@ async def test_judge_model_option_sends_every_request_to_that_model(
     db_path = run_folder / "run.db"
     await write_run(db_path, channel_rounds=(2, 3))
 
-    # When "judge --model claude-sonnet-5-5" runs
-    result = judge(run_folder, db_path, judge_server, "--model", SONNET)
+    # When "judge --model claude-opus-5-5" runs
+    result = judge(run_folder, db_path, judge_server, "--model", OPUS)
 
-    # Then every judge request names model "claude-sonnet-5-5"
+    # Then every judge request names model "claude-opus-5-5"
     assert result.returncode == 0, result.stderr
     assert judge_server.paths == ["/v1/messages"] * 2
-    assert [request["model"] for request in judge_server.requests] == [SONNET] * 2
+    assert [request["model"] for request in judge_server.requests] == [OPUS] * 2
     # And each keeps the explicit effort, JSON schema and default fallbacks
     for request, beta in zip(judge_server.requests, judge_server.betas, strict=True):
         assert request["max_tokens"] == JUDGE_MAX_TOKENS
@@ -429,17 +429,17 @@ async def test_judge_model_option_sends_every_request_to_that_model(
         assert FALLBACK_BETA in beta
 
 
-async def test_judge_without_model_uses_opus(run_folder, judge_server):
-    """Scenario: Without --model the judge uses Opus 5.5."""
+async def test_judge_without_model_uses_sonnet(run_folder, judge_server):
+    """Scenario: Without --model the judge uses Sonnet 5.5."""
     db_path = run_folder / "run.db"
     await write_run(db_path, channel_rounds=(2, 3))
 
     # When "judge" runs without --model
     result = judge(run_folder, db_path, judge_server)
 
-    # Then every judge request names model "claude-opus-5-5"
+    # Then every judge request names model "claude-sonnet-5-5"
     assert result.returncode == 0, result.stderr
     assert judge_server.paths == ["/v1/messages"] * 2
     assert [request["model"] for request in judge_server.requests] == [
-        "claude-opus-5-5"
+        "claude-sonnet-5-5"
     ] * 2

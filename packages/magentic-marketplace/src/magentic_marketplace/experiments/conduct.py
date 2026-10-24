@@ -1,6 +1,6 @@
 """Labelling what sellers say in a finished run: the conduct labels.
 
-For each round from 2 that has channel posts, one Opus 5.5 call (the judge's call, with
+For each round from 2 that has channel posts, one Sonnet 5.5 call (the judge's call, with
 the conduct answer schema) reads that round's posts with sender and recipients and labels
 each post. The labeller is not told who the undercover seller is; roles are joined to the
 labels afterwards from the run folder's `informant.yml`, so the undercover seller can be
@@ -749,7 +749,7 @@ async def run_conduct(
     source: Source = "posts",
     model: str = JUDGE_MODEL,
 ) -> tuple[Path, ...]:
-    """Label a finished run with `model` (Opus 5.5 by default) and write the labels to the current directory.
+    """Label a finished run with `model` (Sonnet 5.5 by default) and write the labels to the current directory.
 
     With source "posts", labels the channel posts and writes labels and counts; with
     "notes", labels the sellers' pricing notes and writes the note labels only.
