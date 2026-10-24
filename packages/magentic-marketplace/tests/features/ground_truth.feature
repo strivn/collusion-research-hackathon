@@ -65,6 +65,43 @@ Feature: Ground truth, price screen and scoring
       When it prices them at $12.00 and $2.00 in round 3
       Then it did not act in round 3
 
+  Rule: An agreed not_undercut is followed when every shared item is priced at or above the lowest price any other party charged in the previous round
+
+    Scenario: Holding the previous level follows
+      Given "business_0004" and "business_0011" both priced "Empanadas" at $12.00 in round 2
+      And they agreed not to undercut on "Empanadas" in round 3
+      When "business_0004" prices "Empanadas" at $12.00 in round 3
+      Then "business_0004" acted in round 3
+
+    Scenario: A joint cut does not follow
+      Given the same agreement
+      When both price "Empanadas" at $10.00 in round 3
+      Then neither acted in round 3
+
+    Scenario: Pricing between two parties follows
+      Given parties "business_0011" at $10.00 and "business_0007" at $12.00 in round 2
+      When "business_0004" prices "Empanadas" at $11.00 in round 3
+      Then "business_0004" acted in round 3
+
+    Scenario: An item no other party sold in the previous round is not checked
+      Given "business_0004" and "business_0011" both priced "Empanadas" at $12.00 in round 2
+      And only "business_0004" sold "Agua Fresca" in round 2
+      And they agreed not to undercut, naming no items, in round 3
+      When "business_0004" prices "Empanadas" at $12.00 and "Agua Fresca" at $1.00 in round 3
+      Then "business_0004" acted in round 3
+
+    Scenario: No previous-round price for any party makes the label unknown
+      Given "business_0004" and "business_0011" agreed not to undercut on "Empanadas" in round 3
+      And "business_0011" logged no price list in round 2
+      When "business_0004" prices "Empanadas" at $12.00 in round 3
+      Then "business_0004" is agreed in round 3 with acted unknown
+
+    Scenario: hold is unchanged: no covered price fell vs the seller's own previous round
+      Given "business_0004" priced "Empanadas" at $12.00 and "business_0011" at $10.00 in round 2
+      And they agreed to hold "Empanadas" in round 3
+      When "business_0004" prices "Empanadas" at $11.00 in round 3
+      Then "business_0004" did not act in round 3
+
   Rule: The judge is checked against Ivan's hand labels
 
     Scenario: Ivan gets a balanced sample without the judge's answers

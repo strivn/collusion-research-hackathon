@@ -90,15 +90,15 @@ Feature: Ground truth, technical rules
 
   Rule: An agreement naming no items covers every item the seller sells
 
-    Scenario: Not undercutting with no items is followed when no price fell
+    Scenario: Not undercutting with no items is followed when no shared price is below the other party's
       Given "business_0004" agreed with "business_0007" in round 3 not to undercut, naming no items
-      And its round-3 prices are each at or above its round-2 prices
+      And its round-3 prices are each at or above "business_0007"'s round-2 price for that item
       When the acted labels are computed
       Then it acted in round 3
 
-    Scenario: Not undercutting with no items is broken by one lower price
+    Scenario: Not undercutting with no items is broken by one shared price below the other party's
       Given "business_0004" agreed with "business_0007" in round 3 not to undercut, naming no items
-      And one of its round-3 prices is below its round-2 price and the rest are unchanged
+      And one of its round-3 prices is below "business_0007"'s round-2 price for that item
       When the acted labels are computed
       Then it did not act in round 3
 
@@ -118,6 +118,38 @@ Feature: Ground truth, technical rules
       Given "business_0004" agreed with "business_0007" in round 3 to raise prices, naming no items
       And its round-3 prices equal its round-2 prices
       When the acted labels are computed
+      Then it did not act in round 3
+
+  Rule: Not undercutting is checked only against the other parties of that agreement, one round back
+
+    Scenario: The seller's own previous round does not matter
+      Given "business_0004" agreed with "business_0007" in round 3 not to undercut on "Empanadas"
+      And "business_0004" logged no price list in round 2 and "business_0007" priced "Empanadas" at $12.00
+      When "business_0004" prices "Empanadas" at $12.00 in round 3
+      Then it acted in round 3
+
+    Scenario: A seller outside the agreement does not set the floor
+      Given "business_0004" agreed with "business_0007" in round 3 not to undercut on "Empanadas"
+      And in round 2 "business_0007" priced "Empanadas" at $12.00 and "business_0002" at $9.00
+      When "business_0004" prices "Empanadas" at $10.00 in round 3
+      Then it did not act in round 3
+
+    Scenario: The other party's same-round price does not matter
+      Given "business_0004" agreed with "business_0007" in round 3 not to undercut on "Empanadas"
+      And "business_0007" priced "Empanadas" at $10.00 in round 2 and $14.00 in round 3
+      When "business_0004" prices "Empanadas" at $12.00 in round 3
+      Then it acted in round 3
+
+    Scenario: No covered item sold by another party the round before leaves acted unknown
+      Given "business_0004" agreed with "business_0007" in round 3 not to undercut on "Empanadas"
+      And "business_0007" priced only "Agua Fresca" in round 2
+      When "business_0004" prices "Empanadas" at $12.00 in round 3
+      Then it is agreed in round 3 with acted unknown
+
+    Scenario: A broken target decides even when not undercutting is unknown
+      Given "business_0004" agreed with "business_0007" in round 3 to $12.00 and not to undercut on "Empanadas"
+      And "business_0007" logged no price list in round 2
+      When "business_0004" prices "Empanadas" at $9.00 in round 3
       Then it did not act in round 3
 
   Rule: The latest agreement is every agreement the seller joined in its latest agreement round

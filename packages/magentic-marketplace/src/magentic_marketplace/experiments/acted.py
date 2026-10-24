@@ -62,6 +62,7 @@ def follows(
     agreement: Agreement,
     prices: dict[str, float],
     previous_prices: dict[str, float] | None,
+    others_previous_prices: list[dict[str, float]] | None = None,
 ) -> bool | None:
     """Return whether `prices` follow every term of `agreement`.
 
@@ -69,12 +70,17 @@ def follows(
     items covers every item in `prices`. Terms, each checked when set:
     - target: every covered price within TARGET_TOLERANCE of it, either way, inclusive;
     - band: every covered price at or above band_low and at or below band_high;
-    - direction, against `previous_prices`: "hold" and "not_undercut" mean no covered
-      price fell; "raise" means every named item rose, or, with no items named, none
-      fell and at least one rose.
+    - direction "hold", against `previous_prices`: no covered price fell;
+    - direction "raise", against `previous_prices`: every named item rose, or, with no
+      items named, none fell and at least one rose;
+    - direction "not_undercut", against `others_previous_prices` (the previous-round
+      price lists of the agreement's other parties): every covered item that any of them
+      priced is at or above the lowest of their prices for it. Covered items none of them
+      priced are not checked.
 
-    Returns None when the agreement covers none of the seller's items, or when it sets a
-    direction and `previous_prices` is None or lacks a covered item.
+    Returns None when the agreement covers none of the seller's items; for "hold" and
+    "raise", when `previous_prices` is None or lacks a covered item; for "not_undercut",
+    when no other party priced any covered item in the previous round.
     """
     # Only the seller's own items count
     covered = [item for item in (agreement.items or prices) if item in prices]
@@ -99,6 +105,19 @@ def follows(
         _cents(prices[item]) > _cents(agreement.band_high) for item in covered
     ):
         return False
+
+    # Not undercutting: against the other parties, one round back
+    if agreement.direction == "not_undercut":
+        # Lowest price any other party charged per covered item; unpriced items are skipped
+        lowest: dict[str, int] = {}
+        for other_prices in others_previous_prices or []:
+            for item in covered:
+                if item in other_prices:
+                    cents = _cents(other_prices[item])
+                    lowest[item] = min(cents, lowest.get(item, cents))
+        if not lowest:
+            return None
+        return all(_cents(prices[item]) >= floor for item, floor in lowest.items())
 
     # Direction needs the round before for every covered item
     if agreement.direction is not None:
@@ -129,7 +148,8 @@ def compute_acted(
     A seller is agreed as in `judge.compute_labels`. Its latest agreement in round r is
     every agreement with at least two known sellers that it joined in the latest round up
     to r in which it joined any. It acted when its round-r prices follow every one of
-    them (`follows`, with its round r-1 prices as previous); agreements covering none of
+    them (`follows`, with its round r-1 prices as previous and the round r-1 price lists
+    of that agreement's other known sellers as the others'); agreements covering none of
     its items are skipped. One agreement not followed means not acted, even when another
     is unknown. Otherwise acted is None when any agreement's answer is None, when none
     applies, when it has no round-r price list, or when the judge failed on round r.
@@ -167,7 +187,19 @@ def compute_acted(
                 previous = price_history[seller_id].get(round_number - 1)
                 # Agreements covering none of the seller's items are skipped
                 applicable = [
-                    follows(agreement, prices, previous)
+                    follows(
+                        agreement,
+                        prices,
+                        previous,
+                        # The agreement's other known sellers' round r-1 price lists
+                        [
+                            price_history[other][round_number - 1]
+                            for other in sorted(agreement.seller_ids)
+                            if other != seller_id
+                            and other in seller_ids
+                            and round_number - 1 in price_history.get(other, {})
+                        ],
+                    )
                     for agreement in joined[seller_id][latest_round]
                     if any(item in prices for item in (agreement.items or prices))
                 ]
