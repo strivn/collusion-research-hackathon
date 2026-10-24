@@ -527,7 +527,9 @@ def conduct_in(
     """Make `run_conduct` work from `run_folder` with `labeller` as its Opus call."""
     monkeypatch.chdir(run_folder)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-    monkeypatch.setattr(conduct, "make_anthropic_labeller", lambda client: labeller)
+    monkeypatch.setattr(
+        conduct, "make_anthropic_labeller", lambda client, labels: labeller
+    )
 
 
 RUN_POSTS = [

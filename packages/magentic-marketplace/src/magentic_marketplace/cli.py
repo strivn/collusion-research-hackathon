@@ -256,7 +256,7 @@ def run_conduct_command(args):
     """Handle the conduct subcommand."""
     # The Anthropic key and any base URL come from the env file
     load_dotenv(args.env_file)
-    labels_path, counts_path = asyncio.run(
+    paths = asyncio.run(
         run_conduct(
             args.experiment_name,
             db_type=args.db_type,
@@ -264,10 +264,12 @@ def run_conduct_command(args):
             postgres_port=args.postgres_port,
             postgres_password=args.postgres_password,
             max_concurrency=args.max_concurrency,
+            labels_path=Path(args.labels) if args.labels else None,
+            source=args.source,
         )
     )
-    print(f"Wrote {labels_path}")
-    print(f"Wrote {counts_path}")
+    for path in paths:
+        print(f"Wrote {path}")
 
 
 def run_acted_command(args):
@@ -731,6 +733,17 @@ def main():
         type=int,
         default=4,
         help="Most rounds waiting on the labeller at once (default: 4)",
+    )
+    conduct_parser.add_argument(
+        "--labels",
+        default=None,
+        help="YAML list of {name, definition} to label with instead of the built-in seven; ordinary is always added (default: the built-in seven)",
+    )
+    conduct_parser.add_argument(
+        "--source",
+        choices=["posts", "notes"],
+        default="posts",
+        help="What to label: channel posts, or each seller's private pricing notes (default: posts)",
     )
     conduct_parser.add_argument(
         "--postgres-host",
