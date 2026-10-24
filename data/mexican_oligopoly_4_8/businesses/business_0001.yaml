@@ -1,0 +1,26 @@
+id: business_0001
+name: Poblano Palate
+description: Experience bold and vibrant flavors inspired by Mexican and Tex-Mex classics
+  at Poblano Palate. From savory mains to sweet treats, our diverse menu is perfect
+  for food lovers seeking a fresh culinary adventure.
+rating: 1.0
+progenitor_customer: customer_0001
+menu_features:
+  Chargrilled Carne Asada: 14.71
+  Coconut Lime Tres Leches: 6.78
+  Jalapeno Infused Tequila Sunrise: 9.57
+  Pineapple Jalapeno Agua Fresca: 4.31
+  Savory Pumpkin Empanadas: 8.73
+  Southwest Chicken Enchiladas: 13.09
+amenity_features:
+  Onsite Parking: true
+  Live Music: true
+  Takes Reservations: true
+  Private Dining: true
+  Wheelchair Accessible: true
+  Children's Menu: true
+  Outdoor Seating: true
+  Large Groups: true
+  Happy Hour: true
+  Free Wifi: true
+min_price_factor: 0.78

@@ -1,0 +1,13 @@
+id: customer_0002
+name: Elijah Carter
+request: Could you please find a business that serves 'Jalapeno Infused Tequila Sunrise'
+  (1), 'Pineapple Jalapeno Agua Fresca' (1) and 'Savory Pumpkin Empanadas' (1) and
+  has the amenity 'Live Music'? I intend to place an order for these items, so it's
+  important that the business meets both the menu and amenity requirements. Thank
+  you for your assistance.
+menu_features:
+  Jalapeno Infused Tequila Sunrise: 9.29
+  Pineapple Jalapeno Agua Fresca: 3.99
+  Savory Pumpkin Empanadas: 9.49
+amenity_features:
+- Live Music

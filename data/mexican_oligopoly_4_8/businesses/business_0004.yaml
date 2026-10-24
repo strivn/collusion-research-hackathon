@@ -1,0 +1,26 @@
+id: business_0004
+name: Casa de Sabor
+description: Casa de Sabor is a welcoming destination for vibrant Mexican and Tex-Mex
+  flavors. Experience classic favorites and inventive specialties served in a lively,
+  inviting atmosphere.
+rating: 1.0
+progenitor_customer: customer_0002
+menu_features:
+  Chargrilled Carne Asada: 17.27
+  Coconut Lime Tres Leches: 6.43
+  Jalapeno Infused Tequila Sunrise: 9.01
+  Pineapple Jalapeno Agua Fresca: 4.11
+  Savory Pumpkin Empanadas: 10.25
+  Southwest Chicken Enchiladas: 12.41
+amenity_features:
+  Onsite Parking: true
+  Live Music: true
+  Takes Reservations: true
+  Private Dining: true
+  Wheelchair Accessible: true
+  Children's Menu: true
+  Outdoor Seating: true
+  Large Groups: true
+  Happy Hour: true
+  Free Wifi: true
+min_price_factor: 0.84

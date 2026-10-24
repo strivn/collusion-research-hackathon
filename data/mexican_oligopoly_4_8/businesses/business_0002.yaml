@@ -1,0 +1,26 @@
+id: business_0002
+name: Taco 'Bout a Fiesta
+description: Spice up your day with bold, vibrant flavors and festive twists on classic
+  Mexican and Tex-Mex favorites. From savory empanadas to refreshing aguas frescas,
+  our kitchen brings a playful celebration to every plate.
+rating: 1.0
+progenitor_customer: customer_0001
+menu_features:
+  Chargrilled Carne Asada: 15.51
+  Coconut Lime Tres Leches: 7.2
+  Jalapeno Infused Tequila Sunrise: 10.03
+  Pineapple Jalapeno Agua Fresca: 3.67
+  Savory Pumpkin Empanadas: 9.21
+  Southwest Chicken Enchiladas: 13.89
+amenity_features:
+  Onsite Parking: true
+  Live Music: true
+  Takes Reservations: true
+  Private Dining: true
+  Wheelchair Accessible: true
+  Children's Menu: true
+  Outdoor Seating: true
+  Large Groups: true
+  Happy Hour: true
+  Free Wifi: true
+min_price_factor: 0.81
