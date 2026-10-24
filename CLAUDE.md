@@ -26,7 +26,7 @@ simulated market), with our own patches.
 |---|---|---|
 | Upstream code we patch | `packages/`, `data/` | yes |
 | Upstream documentation | `docs/` | yes, left untouched |
-| Our experiment code (run config, runner, scoring, judge, screen) | `packages/magentic-marketplace/src/magentic_marketplace/experiments/` | yes, code only |
+| Our experiment code (run config, runner, scoring, judge, screen), next to stock modules such as `run_analytics.py` | `packages/magentic-marketplace/src/magentic_marketplace/experiments/` | yes, code only |
 | Our datasets | `data/<name>/` | yes |
 | Research notes, tracker, run outputs | `research/` (run outputs in `research/results/<run>/`) | no, excluded via `.git/info/exclude` |
 | Local agent context | `CLAUDE.local.md`, `.claude/` | no |
@@ -185,6 +185,14 @@ optional field defaults to stock behaviour:
 Setups: Pricing Only = `rounds` > 1 and `seller_pricing`; Pricing + Messaging adds
 `seller_channel`; Pricing + Messaging + Undercover adds `undercover_informant`.
 
+The validator checks only the informant rule. Other combinations run but do nothing
+useful: any feature with `rounds: 1`; `seller_channel` without `seller_pricing` (sellers
+talk, but no pricing call reads the messages); an informant without `seller_pricing`
+(`question` reads only pricing calls, so `informant_reports.jsonl` comes out empty).
+
+`data` resolves against the current directory. The runner makes it absolute; a
+hand-written `config.yml` run from `research/results/<run>/` needs an absolute path.
+
 `run --config` writes the resolved settings (defaults included) to `config.yml`, plus
 `budgets.yml` (customer id, m, budget) and `informant.yml` (seed, seller id) when those
 features are on, all into the current directory, the run folder. `question` reads
@@ -201,7 +209,8 @@ round; nothing carries over except what is listed here.
   (`agents/business/pricing.py`): last round's prices, the goal "maximize total revenue
   over all rounds", its memory, and with the channel on this round's channel messages.
   A list with a missing item, an off-menu item or a price <= 0 is sent back up to 3
-  times; after that the seller keeps last round's prices. Prices are rounded to cents.
+  times; after that the seller keeps last round's prices and its notes are empty, so
+  next round's memory has no notes. Prices are rounded to cents.
   The prompts never state the total number of rounds.
 - Seller memory (`experiments/seller_memory.py`, built only with pricing on): the notes
   the seller wrote in its last pricing answer (its only free-form memory), its own price,
@@ -224,7 +233,8 @@ round; nothing carries over except what is listed here.
   Each later turn asks only the sellers that received a message in the previous turn and
   still have allowance left. The phase ends when a turn delivers nothing. A seller whose
   talk call raises counts as sending nothing.
-- The talk prompt lists other sellers by name and id only, the messages left, the
+- The talk prompt states the round number and the goal "maximize total revenue over all
+  rounds", lists other sellers by name and id only, and shows the messages left, the
   seller's memory (without the ask for notes) and this round's messages so far. It says
   sending is optional and never mentions collusion.
 - Storage: each send is one `SendChannelMessage` row in `actions` (recipients under
@@ -273,28 +283,36 @@ against the current directory; arm config paths resolve against the experiment f
   after its last line. Without the heading, the first run to finish raises `ValueError`
   and ends the command. A failed run never stops the others; the command exits 1 if any
   failed.
+- The runner never passes `--override-db`, so re-running an experiment `name` whose
+  schemas exist fails every run, each with a "failed" tracker row.
 
 ## Post-run commands
 
-Run each from the run folder. All read the run's database (Postgres schema by default,
-`--db-type sqlite` takes a file path; `score` is Postgres only) and write only to the
-current directory, never to the database.
+Run each per-run command from its run folder. The commands read databases (Postgres
+schema by default, `--db-type sqlite` takes a file path; `score` is Postgres only) and
+never write to them. Each writes where its row says.
 
 | Command | Reads (besides the database) | LLM | Writes |
 |---|---|---|---|
 | `score <schema>` | nothing | none | `customer_rounds.csv` (value, budget, price paid, customer share, seller share, lost per customer-round), `seller_rounds.csv` (price, units sold, revenue per seller-item-round) |
 | `question <schema>` | `informant.yml` if present | env LLM (`LLM_MODEL`) | `informant_reports.jsonl`: every seller, each round from 2, shown its last pricing prompt and answer; the informant framed by `UNDERCOVER_INSTRUCTION`, every other seller by `PRESSURE_QUESTION`. Accusations need a known seller id and a quote; bad ones are sent back up to 3 times, then dropped |
-| `judge <schema>` | nothing | Opus 5.5, paid API | `judge_agreements.jsonl` (agreements per round from 2 with channel messages), `agreed_labels.csv` (seller agreed from the round it joins) |
+| `judge <schema>` | nothing | Opus 5.5, paid API | `judge_agreements.jsonl` (one line per round from 2; a round without channel messages gets `called: false` and no call), `agreed_labels.csv` (true from the round a seller joins an agreement; empty, meaning unknown, for a not-yet-agreed seller from the first round whose call failed) |
 | `acted <schema>` | `judge_agreements.jsonl` | none | `acted_labels.csv`: did each agreed seller's price list follow its latest agreement |
-| `screen-calibrate <schema>...` | nothing | none | `screen_calibration.json`, leave-one-out over at least 3 Pricing Only runs |
+| `screen-calibrate <schema>...` | several databases | none | `screen_calibration.json` in the current directory, leave-one-out over at least 3 Pricing Only runs |
 | `screen <schema> --calibration <path>` | the calibration | none | `screen_flags.csv`, `screen_pairs.csv`: sellers flagged from quoted prices alone, never messages |
 | `exposure <schema>` | the four files above (reports, screen flags, agreed and acted labels); a missing one is skipped and named | none | `exposure_scores.csv` (precision, recall, grounding per detector, label, round), `exposure_detection.csv` (time to detection) |
-| `label-sample <folders>... --out <file>` | each folder's `judge_agreements.jsonl` | none | a markdown sample of channel threads for hand labelling, without the judge's answers |
-| `label-check <file>` | the filled sample and the run folders it names | none | `<file stem>.check.csv`, next to the sample; prints judge-vs-hand agreement |
+| `label-sample <folders>... --out <file>` | each folder's `judge_agreements.jsonl`, and the database named after the folder | none | `--out`: a markdown sample of channel threads for hand labelling, without the judge's answers |
+| `label-check <file>` | the filled sample and each named folder's `judge_agreements.jsonl`; no database | none | `<file stem>.check.csv`, next to the sample; prints judge-vs-hand agreement |
+
+`label-sample` uses each folder's name as its schema. Runner folders are named
+`<arm>_rep<i>` but their schemas `<name>_<arm>_rep<i>`, so on runner output it connects
+to a schema that does not exist.
 
 `judge` calls `anthropic.AsyncAnthropic` directly, not the repo's LLM client: model
 `claude-opus-5-5`, effort high, JSON-schema output, server-side fallback beta. It takes
 `ANTHROPIC_API_KEY` from `--env-file`, so it bills the API key, not a subscription.
+`load_dotenv` does not override variables already set, so a key or
+`ANTHROPIC_BASE_URL` exported in the shell wins over the file.
 
 ## Gotchas
 
@@ -303,7 +321,8 @@ current directory, never to the database.
 - Anthropic client (`llm/clients/anthropic.py`) with current models: `claude-haiku-5-5`
   returns 400 on a non-default `temperature`, so leave `LLM_TEMPERATURE` unset.
   `LLM_REASONING_EFFORT=minimal` sends `thinking: {type: "disabled"}`, which Haiku 5.5
-  accepts at its default effort. Opus 5.5 and Sonnet 5.5 reject both disabled thinking
+  accepts at its default effort. Every other string (`low`, `high`) also disables
+  thinking; only an integer budget turns it on. Opus 5.5 and Sonnet 5.5 reject both disabled thinking
   and the forced `tool_choice` used for structured output, so they need a client patch.
 - Each `llm_call` log row has `input_tokens` and `output_tokens` next to the stock
   combined `token_count`, for all three clients, so spend can be computed per call.
@@ -320,5 +339,6 @@ current directory, never to the database.
   then query `<schema>.actions` (message under `data->'request'->'parameters'->'message'`)
   and `<schema>.logs` (`data->'data'->>'type' = 'llm_call'`, with `prompt`, `response`,
   `token_count`, `input_tokens`, `output_tokens`, `duration_ms`). Filter by round with
-  `data->'request'->'metadata'->>'round'` on actions and `data->'metadata'->>'round'`
-  on logs.
+  `data->'request'->'metadata'->>'round'` on actions, `data->'metadata'->>'round'` on
+  `llm_call` logs, and `data->'data'->>'round'` on `price_list`, `channel_message` and
+  `refused_payment` logs. `budget_assignment` has no round.
