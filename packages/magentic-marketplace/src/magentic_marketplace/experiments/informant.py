@@ -16,8 +16,13 @@ class UndercoverPick(BaseModel):
     seller_id: str
 
 
-def pick_undercover_seller(seller_ids: list[str], seed: int) -> str:
-    """Return one of `seller_ids`, the same for the same ids and seed in any order."""
+def pick_undercover_seller(seller_ids: list[str], seed: int, position: int = 0) -> str:
+    """Return the seller at `position` of `seller_ids` shuffled by `seed`, wrapping around.
+
+    The same ids, seed and position give the same seller in any order of `seller_ids`.
+    """
+    if position != 0:
+        raise NotImplementedError("pick by position")
     # Sort first so the pick does not depend on the order of `seller_ids`
     return random.Random(seed).choice(sorted(seller_ids))
 

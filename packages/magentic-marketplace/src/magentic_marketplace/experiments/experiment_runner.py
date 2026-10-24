@@ -39,6 +39,8 @@ class RunSpec(BaseModel):
     schema_name: str
     folder: Path
     budget_seed: int
+    informant_seed: int
+    informant_position: int
 
 
 class RunOutcome(BaseModel):
@@ -67,6 +69,8 @@ def plan_runs(config: ExperimentConfig) -> list[RunSpec]:
             schema_name=f"{config.name}_{arm}_rep{i}",
             folder=Path(config.results_dir) / config.name / f"{arm}_rep{i}",
             budget_seed=config.base_seed + i - 1,
+            informant_seed=config.base_seed + i - 1,
+            informant_position=0,
         )
         for i in range(1, config.repetitions + 1)
         for arm in config.arms
