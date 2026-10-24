@@ -1,6 +1,6 @@
 """Judging price agreements in a finished run's channel messages: the "agreed" label.
 
-For each round from 2 that has channel messages, one Opus 5.5 call through the Anthropic
+For each round from 2 that has channel messages, one Sonnet 5.5 call through the Anthropic
 SDK reads that round's messages and each seller's prices per item up to and including that
 round, and lists the price agreements it finds. A seller is agreed from the round it joins
 an agreement onward. Agreements and labels go to the run folder; nothing is written to the
@@ -30,7 +30,7 @@ from magentic_marketplace.platform.database.sqlite.sqlite import (
 
 logger = logging.getLogger(__name__)
 
-JUDGE_MODEL = "claude-opus-5-5"
+JUDGE_MODEL = "claude-sonnet-5-5"
 JUDGE_EFFORT = "high"
 JUDGE_MAX_TOKENS = 16000
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -457,7 +457,7 @@ async def run_judge(
     max_concurrency: int = 4,
     model: str = JUDGE_MODEL,
 ) -> tuple[Path, Path]:
-    """Judge a finished run with `model` (Opus 5.5 by default) and write agreements and labels to the current directory.
+    """Judge a finished run with `model` (Sonnet 5.5 by default) and write agreements and labels to the current directory.
 
     `experiment_name` is the Postgres schema, or the SQLite file path for sqlite. The rounds
     are those with a price list or a channel message. Uses `anthropic.AsyncAnthropic()`,
