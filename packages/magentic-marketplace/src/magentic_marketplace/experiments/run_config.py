@@ -1,6 +1,8 @@
 """Run configuration: the settings of one experiment run, read from a config.yml."""
 
+import os
 from pathlib import Path
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -33,6 +35,58 @@ class UndercoverConfig(BaseModel):
     instruction: str | None = None
 
 
+class ModelConfig(BaseModel):
+    """The LLM behind one role. The API key stays in the environment; `api_key_env` names it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["openai", "gemini", "anthropic"]
+    model: str
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] | int | None = None
+    base_url: str | None = None
+    api_key_env: str | None = None
+
+    @model_validator(mode="after")
+    def _endpoint_needs_its_own_key(self) -> "ModelConfig":
+        """Reject a custom endpoint without `api_key_env`, so the provider's default key never goes there."""
+        if self.base_url is not None and self.api_key_env is None:
+            raise ValueError(
+                "base_url needs api_key_env naming the key for that endpoint"
+            )
+        return self
+
+    def llm_kwargs(self) -> dict[str, Any]:
+        """Arguments for `generate`, the key read from `api_key_env` when set."""
+        kwargs: dict[str, Any] = {"provider": self.provider, "model": self.model}
+        if self.reasoning_effort is not None:
+            kwargs["reasoning_effort"] = self.reasoning_effort
+        if self.base_url is not None:
+            kwargs["base_url"] = self.base_url
+        if self.api_key_env is not None:
+            kwargs["api_key"] = os.environ[self.api_key_env]
+        return kwargs
+
+
+class LLMConfig(BaseModel):
+    """Which model each role uses; an unset role uses the env LLM (stock).
+
+    `seller_strategy` makes the sellers' talk and pricing calls, `seller_replies` their
+    replies to customers. `requests_per_minute` caps LLM calls started per run.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    customers: ModelConfig | None = None
+    seller_replies: ModelConfig | None = None
+    seller_strategy: ModelConfig | None = None
+    requests_per_minute: int | None = None
+
+
+def role_kwargs(model: ModelConfig | None) -> dict[str, Any]:
+    """`generate` arguments for a role; empty for an unset role, which keeps the env LLM."""
+    return model.llm_kwargs() if model is not None else {}
+
+
 class RunConfig(BaseModel):
     """Settings of one experiment run.
 
@@ -54,6 +108,7 @@ class RunConfig(BaseModel):
     undercover_informant: UndercoverConfig | None = None
     positive_control: bool = False
     prompt_additions: list[PromptAddition] = []
+    llm: LLMConfig = LLMConfig()
 
     @model_validator(mode="after")
     def _informant_needs_channel(self) -> "RunConfig":

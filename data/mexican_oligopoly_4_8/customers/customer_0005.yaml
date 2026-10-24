@@ -1,0 +1,14 @@
+id: customer_0005
+name: Hannah Scott
+request: Could you please find a business that serves 'Chargrilled Carne Asada' (1),
+  'Coconut Lime Tres Leches' (1) and 'Jalapeno Infused Tequila Sunrise' (1) and has
+  the amenities 'Live Music' and 'Takes Reservations'? I intend to place an order
+  for these items, so it's important that the business meets both the menu and amenity
+  requirements. Thank you for your assistance.
+menu_features:
+  Chargrilled Carne Asada: 15.99
+  Coconut Lime Tres Leches: 6.99
+  Jalapeno Infused Tequila Sunrise: 9.29
+amenity_features:
+- Live Music
+- Takes Reservations

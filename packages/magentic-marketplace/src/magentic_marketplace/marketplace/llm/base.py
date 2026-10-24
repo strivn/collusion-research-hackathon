@@ -58,6 +58,33 @@ class LLMCallLog(BaseModel):
     api_args: dict[str, Any]
 
 
+class _RequestRate:
+    """Spaces the starts of LLM calls in this process at least 60 / rpm seconds apart."""
+
+    def __init__(self) -> None:
+        self.interval: float = 0.0
+        self._next_start = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        """Wait for this call's start slot; returns at once when no cap is set."""
+        if self.interval <= 0:
+            return
+        async with self._lock:
+            now = time.monotonic()
+            start = max(now, self._next_start)
+            self._next_start = start + self.interval
+        await asyncio.sleep(start - now)
+
+
+_request_rate = _RequestRate()
+
+
+def set_requests_per_minute(requests_per_minute: int | None) -> None:
+    """Cap the LLM calls this process starts per minute; None removes the cap."""
+    _request_rate.interval = 60.0 / requests_per_minute if requests_per_minute else 0.0
+
+
 class _DummySemaphore(AbstractAsyncContextManager):
     async def __aenter__(self):
         return self
@@ -219,6 +246,7 @@ class ProviderClient(ABC, Generic[TConfig]):
             raise ValueError("model required when self.model is not set.")
 
         async with self._semaphore:
+            await _request_rate.wait()
             start_time = time.time()
             try:
                 result = await self._generate(

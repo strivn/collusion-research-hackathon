@@ -23,6 +23,7 @@ from magentic_marketplace.experiments.informant import (
 from magentic_marketplace.experiments.run_config import (
     RUN_CONFIG_FILENAME,
     load_run_config,
+    role_kwargs,
 )
 from magentic_marketplace.marketplace.agents.business.informant import (
     PRESSURE_QUESTION,
@@ -170,6 +171,14 @@ def load_undercover_instruction(run_folder: Path) -> str:
         if informant is not None and informant.instruction is not None:
             return informant.instruction
     return UNDERCOVER_INSTRUCTION
+
+
+def load_strategy_llm(run_folder: Path) -> dict[str, Any]:
+    """`generate` arguments of the run's seller strategy model; empty keeps the env LLM."""
+    path = run_folder / RUN_CONFIG_FILENAME
+    if not path.exists():
+        return {}
+    return role_kwargs(load_run_config(path).llm.seller_strategy)
 
 
 def format_question(
@@ -381,10 +390,14 @@ async def run_question(
 
     # No logger is passed, so nothing is written to the run's database
     config = BaseLLMConfig()
+    # Question sellers on the model that made their talk and pricing calls
+    strategy_llm = load_strategy_llm(run_folder)
 
     async def generate_struct_fn(prompt: str, response_format: type) -> tuple[Any, Any]:
         return await generate(
-            prompt, response_format=response_format, **config.model_dump()
+            prompt,
+            response_format=response_format,
+            **{**config.model_dump(), **strategy_llm},
         )
 
     reports = await question_sellers(

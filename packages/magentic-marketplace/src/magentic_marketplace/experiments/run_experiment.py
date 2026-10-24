@@ -17,7 +17,12 @@ from magentic_marketplace.experiments.informant import (
     save_undercover_pick,
 )
 from magentic_marketplace.experiments.round_scores import compute_round_tables
-from magentic_marketplace.experiments.run_config import BudgetConfig, UndercoverConfig
+from magentic_marketplace.experiments.run_config import (
+    BudgetConfig,
+    LLMConfig,
+    UndercoverConfig,
+    role_kwargs,
+)
 from magentic_marketplace.experiments.seller_memory import build_seller_memories
 from magentic_marketplace.experiments.utils import (
     load_businesses_from_yaml,
@@ -31,6 +36,7 @@ from magentic_marketplace.marketplace.agents.business.informant import (
 from magentic_marketplace.marketplace.agents.business.pricing import SellerMemory
 from magentic_marketplace.marketplace.agents.business.talk import TalkPhase
 from magentic_marketplace.marketplace.agents.round_gate import RoundGate
+from magentic_marketplace.marketplace.llm.base import set_requests_per_minute
 from magentic_marketplace.marketplace.protocol.protocol import SimpleMarketplaceProtocol
 from magentic_marketplace.platform.database import (
     connect_to_postgresql_database,
@@ -75,6 +81,7 @@ async def run_marketplace_experiment(
     undercover_informant: UndercoverConfig | None = None,
     positive_control: bool = False,
     prompt_additions: list[PromptAddition] | None = None,
+    llm: LLMConfig | None = None,
 ):
     """Run a marketplace experiment using YAML configuration files.
 
@@ -82,7 +89,15 @@ async def run_marketplace_experiment(
     undercover one with COORDINATION_INSTRUCTION. Every seller of every round gets
     `prompt_additions`; the undercover seller's prompts open with
     `undercover_informant.instruction` when set, UNDERCOVER_INSTRUCTION otherwise.
+    `llm` picks the model per role and caps the request rate; None keeps the env LLM.
     """
+    # Models per role and the request-rate cap; unset roles keep the env LLM
+    llm = llm or LLMConfig()
+    set_requests_per_minute(llm.requests_per_minute)
+    customer_llm = role_kwargs(llm.customers)
+    reply_llm = role_kwargs(llm.seller_replies)
+    strategy_llm = role_kwargs(llm.seller_strategy)
+
     # Load businesses and customers from YAML files
     data_dir = Path(data_dir)
     businesses_dir = data_dir / "businesses"
@@ -215,6 +230,8 @@ async def run_marketplace_experiment(
                         and business.id != undercover_seller_id,
                         undercover_instruction=undercover_instruction,
                         prompt_additions=prompt_additions,
+                        llm_kwargs=reply_llm,
+                        strategy_llm_kwargs=strategy_llm,
                     )
                     for business in businesses
                 ]
@@ -230,6 +247,7 @@ async def run_marketplace_experiment(
                         round_number=round_number,
                         messages_after_index=messages_floor,
                         round_gate=round_gate,
+                        llm_kwargs=customer_llm,
                     )
                     for customer in customers
                 ]

@@ -1,0 +1,10 @@
+id: customer_0003
+name: Emma Novak
+request: Could you please find a business that serves 'Pineapple Jalapeno Agua Fresca'
+  (1) and has the amenity 'Wheelchair Accessible'? I intend to place an order for
+  these items, so it's important that the business meets both the menu and amenity
+  requirements. Thank you for your assistance.
+menu_features:
+  Pineapple Jalapeno Agua Fresca: 3.99
+amenity_features:
+- Wheelchair Accessible

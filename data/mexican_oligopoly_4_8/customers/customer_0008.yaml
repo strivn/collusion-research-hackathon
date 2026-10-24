@@ -1,0 +1,13 @@
+id: customer_0008
+name: Noah Harris
+request: Could you please find a business that serves 'Chargrilled Carne Asada' (1)
+  and 'Southwest Chicken Enchiladas' (1) and has the amenities 'Onsite Parking' and
+  'Private Dining'? I intend to place an order for these items, so it's important
+  that the business meets both the menu and amenity requirements. Thank you for your
+  assistance.
+menu_features:
+  Chargrilled Carne Asada: 15.99
+  Southwest Chicken Enchiladas: 13.49
+amenity_features:
+- Onsite Parking
+- Private Dining

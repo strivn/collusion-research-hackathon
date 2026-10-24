@@ -1,0 +1,26 @@
+id: business_0003
+name: Verde & Ember
+description: A vibrant spot for modern Mexican and Tex-Mex flavors, Verde & Ember
+  brings fresh ingredients and creative twists to classic favorites. Enjoy bold, colorful
+  dishes and house-made salsas in a lively, welcoming atmosphere.
+rating: 1.0
+progenitor_customer: customer_0001
+menu_features:
+  Chargrilled Carne Asada: 16.47
+  Coconut Lime Tres Leches: 7.55
+  Jalapeno Infused Tequila Sunrise: 8.55
+  Pineapple Jalapeno Agua Fresca: 3.87
+  Savory Pumpkin Empanadas: 9.77
+  Southwest Chicken Enchiladas: 14.57
+amenity_features:
+  Onsite Parking: true
+  Live Music: true
+  Takes Reservations: true
+  Private Dining: true
+  Wheelchair Accessible: true
+  Children's Menu: true
+  Outdoor Seating: true
+  Large Groups: true
+  Happy Hour: true
+  Free Wifi: true
+min_price_factor: 0.84

@@ -1,0 +1,10 @@
+id: customer_0001
+name: Alexander Okoro
+request: Could you please find a business that serves 'Pineapple Jalapeno Agua Fresca'
+  (1) and 'Southwest Chicken Enchiladas' (1)? I intend to place an order for these
+  items, so it's important that the business has every item on its menu. Thank you
+  for your assistance.
+menu_features:
+  Pineapple Jalapeno Agua Fresca: 3.99
+  Southwest Chicken Enchiladas: 13.49
+amenity_features: []

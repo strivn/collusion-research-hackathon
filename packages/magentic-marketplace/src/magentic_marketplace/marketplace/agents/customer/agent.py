@@ -2,6 +2,7 @@
 
 import asyncio
 import traceback
+from typing import Any
 
 from magentic_marketplace.platform.shared.models import (
     BaseAction,
@@ -47,6 +48,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
         round_number: int = 1,
         messages_after_index: int | None = None,
         round_gate: RoundGate | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
     ):
         """Initialize the customer agent.
 
@@ -62,6 +64,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
             round_number: The round this agent shops in.
             messages_after_index: Ignore messages at or below this row index (earlier rounds).
             round_gate: This round's gate; the customer waits on it before its first step.
+            llm_kwargs: `generate` arguments over `llm_config`; None keeps it (stock).
 
         """
         profile = CustomerAgentProfile.from_customer(customer)
@@ -71,6 +74,7 @@ class CustomerAgent(BaseSimpleMarketplaceAgent[CustomerAgentProfile]):
             llm_config,
             round_number=round_number,
             messages_after_index=messages_after_index,
+            llm_kwargs=llm_kwargs,
         )
 
         # Initialize customer agent state

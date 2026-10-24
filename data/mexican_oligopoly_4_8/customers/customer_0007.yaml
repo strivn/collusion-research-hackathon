@@ -1,0 +1,8 @@
+id: customer_0007
+name: Amy Wilson
+request: Could you please find a business that serves 'Jalapeno Infused Tequila Sunrise'
+  (1)? I intend to place an order for these items, so it's important that the business
+  has every item on its menu. Thank you for your assistance.
+menu_features:
+  Jalapeno Infused Tequila Sunrise: 9.29
+amenity_features: []

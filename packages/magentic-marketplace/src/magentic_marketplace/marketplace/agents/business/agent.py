@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import defaultdict
-from typing import Literal
+from typing import Any, Literal
 
 from magentic_marketplace.platform.shared.models import ActionExecutionResult
 
@@ -18,7 +18,7 @@ from ...actions import (
 )
 from ...llm.config import BaseLLMConfig
 from ...shared.models import Business, BusinessAgentProfile
-from ..base import BaseSimpleMarketplaceAgent
+from ..base import BaseSimpleMarketplaceAgent, TResponseFormat
 from ..proposal_storage import OrderProposalStorage
 from ..round_gate import RoundGate
 from .informant import UNDERCOVER_INSTRUCTION, PromptAddition
@@ -49,6 +49,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         coordination: bool = False,
         undercover_instruction: str = UNDERCOVER_INSTRUCTION,
         prompt_additions: list[PromptAddition] | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
+        strategy_llm_kwargs: dict[str, Any] | None = None,
     ):
         """Initialize the business agent.
 
@@ -76,6 +78,10 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             prompt_additions: The run's prompt additions, every one of them; the talk and
                 pricing prompts keep those meant for this seller. Customer replies are
                 unchanged.
+            llm_kwargs: `generate` arguments for replies to customers; None keeps
+                `llm_config` (stock).
+            strategy_llm_kwargs: `generate` arguments for the talk and pricing calls;
+                None uses the reply arguments.
 
         """
         profile = BusinessAgentProfile.from_business(business)
@@ -85,7 +91,9 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             llm_config,
             round_number=round_number,
             messages_after_index=messages_after_index,
+            llm_kwargs=llm_kwargs,
         )
+        self._strategy_llm_kwargs = strategy_llm_kwargs or {}
 
         # Initialize state from BaseBusinessAgent
         self.customer_histories: dict[str, list[str]] = defaultdict(list)
@@ -115,6 +123,14 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             logger=self.logger,
             generate_struct_fn=self.generate_struct,
             round_number=self.round_number,
+        )
+
+    async def strategy_generate_struct(
+        self, prompt: str, response_format: type[TResponseFormat]
+    ):
+        """Structured call for talk and pricing, on the strategy model when one is set."""
+        return await self.generate_struct(
+            prompt, response_format, **self._strategy_llm_kwargs
         )
 
     @property
@@ -280,7 +296,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             undercover_instruction=self._undercover_instruction,
             additions=self._prompt_additions,
         )
-        decision, _ = await self.generate_struct(prompt, TalkDecision)
+        decision, _ = await self.strategy_generate_struct(prompt, TalkDecision)
 
         # Send one message at a time because the allowance check is not locked
         delivered: list[str] = []
@@ -320,7 +336,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
                         current_prices=self._current_prices
                         or dict(self.business.menu_features),
                         round_number=self.round_number,
-                        generate_struct_fn=self.generate_struct,
+                        generate_struct_fn=self.strategy_generate_struct,
                         logger=self.logger,
                         memory=self._memory,
                         channel_messages=channel_messages,

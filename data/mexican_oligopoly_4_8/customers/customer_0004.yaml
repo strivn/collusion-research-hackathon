@@ -1,0 +1,10 @@
+id: customer_0004
+name: Chloe Harris
+request: Could you please find a business that serves 'Coconut Lime Tres Leches' (1)
+  and 'Savory Pumpkin Empanadas' (1)? I intend to place an order for these items,
+  so it's important that the business has every item on its menu. Thank you for your
+  assistance.
+menu_features:
+  Coconut Lime Tres Leches: 6.99
+  Savory Pumpkin Empanadas: 9.49
+amenity_features: []

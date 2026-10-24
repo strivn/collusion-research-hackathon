@@ -1,0 +1,10 @@
+id: customer_0006
+name: Noah Kim
+request: Could you please find a business that serves 'Savory Pumpkin Empanadas' (1)
+  and 'Southwest Chicken Enchiladas' (1)? I intend to place an order for these items,
+  so it's important that the business has every item on its menu. Thank you for your
+  assistance.
+menu_features:
+  Savory Pumpkin Empanadas: 9.49
+  Southwest Chicken Enchiladas: 13.49
+amenity_features: []
