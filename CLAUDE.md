@@ -149,7 +149,13 @@ wraps send/fetch and LLM calls (`generate`, `generate_struct`) and logs each cal
 
 LLM (`P/marketplace/llm/`): provider and model come from env (`LLM_PROVIDER`
 openai|gemini|anthropic, `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_MAX_CONCURRENCY`) via
-`BaseLLMConfig`. Only the OpenAI client accepts a custom base URL (`OPENAI_BASE_URL`).
+`BaseLLMConfig`, unless the run config's `llm:` block sets them per role (Run config
+below). Only the OpenAI client accepts a custom base URL (`OPENAI_BASE_URL`, or
+`base_url` in the `llm:` block). Each agent merges its role's arguments over its
+`llm_config` in `generate`/`generate_struct` (`agents/base.py`); a business agent sends its
+talk and pricing calls with `strategy_llm_kwargs` (`strategy_generate_struct`) and its
+customer replies with `llm_kwargs`. `set_requests_per_minute` (`llm/base.py`) spaces the
+starts of every LLM call in the process.
 
 Analytics (`P/experiments/run_analytics.py`): customer utility is
 2 x sum(`menu_features` prices) if the order matches the request, minus payment. The
@@ -160,6 +166,15 @@ Data (`data/<cuisine>_<customers>_<businesses>/`): customer YAML has `request`,
 has `menu_features` (menu prices), `amenity_features`, `rating`, `progenitor_customer`
 and `min_price_factor`. `min_price_factor` is declared in `P/marketplace/shared/models.py`
 but no code reads it.
+
+Market shape: in the stock datasets (`mexican_3_9`, `_10_30`, `_33_99`, `_100_300`) each
+customer has 3 sellers with its items, 2 of them with its amenities, and each seller can
+serve at most 1 customer: disjoint trios, so 2 of 3 sellers sell nothing each round. Our
+datasets: `data/mexican_3_9_demanded` and `_demanded_plus2` (menus cut to the demanded items,
+`experiments/collusion/menu_variants.py`), and `data/mexican_oligopoly_4_8`
+(`experiments/collusion/oligopoly_dataset.py`): 4 sellers with all 6 items and every
+amenity, round-1 price = reference x {0.92, 0.97, 1.03, 1.08} rotated per item, and 8
+customers with 1-3 items each, so every customer can buy from all 4 sellers.
 
 Logs: every action and LLM call is a JSONB row in the schema's `agents`, `actions` and
 `logs` tables. Messages are fetched in `row_index` order. Our features add log rows with
@@ -183,6 +198,7 @@ optional field defaults to stock behaviour:
 | `undercover_informant: {seed}` | none | one seller, picked by seed, is the informant. Requires `seller_channel: true`; the config is refused otherwise |
 | `undercover_informant.instruction` | none | replaces `UNDERCOVER_INSTRUCTION` in the informant's talk, pricing and `question` framing |
 | `prompt_additions: [{text, sellers, prompts, place}]` | `[]` | extra seller text. `sellers`: `all`, `ordinary` (all but the informant) or `undercover`; `prompts`: any of `talk`, `pricing`; `place`: `top` (after the undercover and coordination instructions, then a blank line) or `after_goal` (after the revenue goal line, after a space). Config order is kept. Customer replies never get them. An `undercover` addition needs `undercover_informant` and a `talk` addition needs `seller_channel`; the config is refused otherwise |
+| `llm: {customers, seller_replies, seller_strategy, requests_per_minute}` | all unset | model per role, each `{provider, model, reasoning_effort, base_url, api_key_env}`; an unset role uses the env LLM. `seller_strategy` makes the talk and pricing calls, `seller_replies` the replies to customers. `api_key_env` names the env variable holding the key (the config never holds a key); a `base_url` without `api_key_env` is refused. `requests_per_minute` caps LLM call starts per run process |
 
 Setups: Pricing Only = `rounds` > 1 and `seller_pricing`; Pricing + Messaging adds
 `seller_channel`; Pricing + Messaging + Undercover adds `undercover_informant`.
@@ -281,7 +297,9 @@ against the current directory; arm config paths resolve against the experiment f
   one repetition share customer budgets and the informant pick. Runs are ordered
   repetition first so paired runs start together.
 - Each run is its own process with its own LLM semaphore, so up to `parallel` x
-  `LLM_MAX_CONCURRENCY` (default 64) calls can be in flight.
+  `LLM_MAX_CONCURRENCY` (default 64) calls can be in flight, and up to `parallel` x
+  `llm.requests_per_minute` calls start per minute.
+- The tracker's model column names `llm.seller_strategy.model` when set, else `LLM_MODEL`.
 - The tracker must contain a line exactly `## Runs` followed by a table; the row goes
   after its last line. Without the heading, the first run to finish raises `ValueError`
   and ends the command. A failed run never stops the others; the command exits 1 if any
@@ -298,7 +316,7 @@ never write to them. Each writes where its row says.
 | Command | Reads (besides the database) | LLM | Writes |
 |---|---|---|---|
 | `score <schema>` | nothing | none | `customer_rounds.csv` (value, budget, price paid, customer share, seller share, lost per customer-round), `seller_rounds.csv` (price, units sold, revenue per seller-item-round) |
-| `question <schema>` | `informant.yml` and `config.yml` if present | env LLM (`LLM_MODEL`) | `informant_reports.jsonl`: every seller, each round from 2, shown its last pricing prompt and answer; the informant framed by `UNDERCOVER_INSTRUCTION` (or the config's `undercover_informant.instruction`), every other seller by `PRESSURE_QUESTION`. Accusations need a known seller id and a quote; bad ones are sent back up to 3 times, then dropped |
+| `question <schema>` | `informant.yml` and `config.yml` if present | `llm.seller_strategy` of `config.yml` when set, else env LLM (`LLM_MODEL`) | `informant_reports.jsonl`: every seller, each round from 2, shown its last pricing prompt and answer; the informant framed by `UNDERCOVER_INSTRUCTION` (or the config's `undercover_informant.instruction`), every other seller by `PRESSURE_QUESTION`. Accusations need a known seller id and a quote; bad ones are sent back up to 3 times, then dropped |
 | `judge <schema>` | nothing | Sonnet 5.5, paid API | `judge_agreements.jsonl` (one line per round from 2; a round without channel messages gets `called: false` and no call), `agreed_labels.csv` (true from the round a seller joins an agreement; empty, meaning unknown, for a not-yet-agreed seller from the first round whose call failed) |
 | `conduct <schema> [--labels <file>] [--source posts\|notes]` | `informant.yml` if present; the labels file | Sonnet 5.5, paid API | posts (default): `conduct_labels.csv` (round, sender, recipients, turn, label, quote, role), `conduct_counts.csv` (posts sent per seller-round); notes: `conduct_notes_labels.csv` (seller_id, round, label, quote, role) from each seller's pricing notes, no channel needed. The labeller is not told who the informant is. Labels: the built-in seven, or the file's YAML list of `{name, definition}` (example: `experiments/collusion/conduct_labels_v2.yml`); `ordinary` is always added last and a file may not list it. An answer with an unknown label is sent back up to 3 times, then the round is unlabelled |
 | `acted <schema>` | `judge_agreements.jsonl` | none | `acted_labels.csv`: did each agreed seller's price list follow its latest agreement |
@@ -328,6 +346,16 @@ to a schema that does not exist.
   accepts at its default effort. Every other string (`low`, `high`) also disables
   thinking; only an integer budget turns it on. Opus 5.5 and Sonnet 5.5 reject both disabled thinking
   and the forced `tool_choice` used for structured output, so they need a client patch.
+  When a structured answer fails validation, the client retries with the error as a
+  `tool_result` for the rejected `tool_use` (before #46 the retry was a 400 and the call
+  was lost).
+- OpenAI client: `reasoning_effort` `minimal` is sent as is to gpt-5 models (gpt-5-mini:
+  0 reasoning tokens) and turned into `low` only for o-models. Before #46 every reasoning
+  model got `low`, so earlier GPT-5 runs reasoned.
+- OpenRouter works through the OpenAI client (`base_url: https://openrouter.ai/api/v1`,
+  `api_key_env: OPENROUTER_API_KEY`). Our key is on the free tier: 50 requests per day, and
+  the free Gemma 4 endpoints returned 429 while `inkling:free` returned 403 (2026-10-24), so free
+  models cannot carry a run.
 - Each `llm_call` log row has `input_tokens` and `output_tokens` next to the stock
   combined `token_count`, for all three clients, so spend can be computed per call.
   `judge` and `question` write no `llm_call` rows (they pass no logger), so their spend
