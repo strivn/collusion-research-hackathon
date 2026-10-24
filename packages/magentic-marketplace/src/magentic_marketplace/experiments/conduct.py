@@ -8,14 +8,35 @@ compared with the same seller id in the paired Pricing + Messaging run. Labels a
 seller post counts go to the run folder; nothing is written to the run's database.
 """
 
+import asyncio
+import csv
 import logging
+from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Literal
 
+import anthropic
 from pydantic import BaseModel, ConfigDict
 
-from magentic_marketplace.experiments.judge import ChannelPost
+from magentic_marketplace.experiments.judge import (
+    ChannelPost,
+    JudgeRefusedError,
+    ask_anthropic,
+    format_post_line,
+    load_channel_posts,
+    load_price_history,
+)
+from magentic_marketplace.experiments.questioning import (
+    INFORMANT_FILENAME,
+    load_seller_ids,
+    load_undercover_pick,
+)
+from magentic_marketplace.platform.database import connect_to_postgresql_database
+from magentic_marketplace.platform.database.base import BaseDatabaseController
+from magentic_marketplace.platform.database.sqlite.sqlite import (
+    SQLiteDatabaseController,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,12 +161,33 @@ def format_conduct_prompt(round_number: int, posts: list[ChannelPost]) -> str:
     LABEL_DEFINITIONS order, "<label>: <definition>"; LABEL_RULE; ANSWER_REQUEST. Posts of
     other rounds are left out. Nothing in it depends on who the undercover seller is.
     """
-    raise NotImplementedError
+    # This round's posts, numbered from 1 in log order
+    post_lines = [
+        f"[post {number}] {format_post_line(post)}"
+        for number, post in enumerate(
+            (post for post in posts if post.round == round_number), start=1
+        )
+    ]
+    label_lines = [
+        f"{label}: {definition}" for label, definition in LABEL_DEFINITIONS.items()
+    ]
+    parts = [
+        CONDUCT_INSTRUCTION,
+        "\n".join([f"Messages in round {round_number}:", *post_lines]),
+        "\n".join(["Labels:", *label_lines]),
+        LABEL_RULE,
+        ANSWER_REQUEST,
+    ]
+    return "\n\n".join(parts)
 
 
 def make_anthropic_labeller(client: Any) -> LabellerFn:
     """Return a labeller that asks `client` for a ConductAnswer with `judge.ask_anthropic`."""
-    raise NotImplementedError
+
+    async def labeller(prompt: str) -> ConductAnswer:
+        return await ask_anthropic(client, prompt, ConductAnswer)
+
+    return labeller
 
 
 async def label_round(
@@ -161,7 +203,59 @@ async def label_round(
     refusal or any exception from `labeller_fn` becomes the result's `error`, leaves one
     unlabelled row per post, and is logged as a warning naming the round.
     """
-    raise NotImplementedError
+    # A round without posts has nothing to label
+    round_posts = [post for post in posts if post.round == round_number]
+    if not round_posts:
+        return RoundConduct(round=round_number, labels=[])
+
+    def unlabelled(post: ChannelPost) -> PostLabel:
+        return PostLabel(
+            round=round_number,
+            sender=post.sender,
+            recipients=post.recipients,
+            turn=post.turn,
+            label=None,
+            quote=None,
+        )
+
+    # A failed or refused call leaves every post of the round unlabelled
+    try:
+        answer = await labeller_fn(format_conduct_prompt(round_number, round_posts))
+    except Exception as e:
+        error = f"refused: {e}" if isinstance(e, JudgeRefusedError) else str(e)
+        logger.warning("Labelling round %d failed: %s", round_number, error)
+        return RoundConduct(
+            round=round_number,
+            labels=[unlabelled(post) for post in round_posts],
+            error=error,
+        )
+
+    # Quotes per post number by label; a repeated label keeps its first quote
+    quotes: dict[int, dict[ConductLabel, str]] = defaultdict(dict)
+    for post_answer in answer.posts:
+        if not 1 <= post_answer.post <= len(round_posts):
+            logger.warning(
+                "Round %d: dropped labels for post %d, which the round does not have",
+                round_number,
+                post_answer.post,
+            )
+            continue
+        for label_quote in post_answer.labels:
+            quotes[post_answer.post].setdefault(label_quote.label, label_quote.quote)
+
+    # Rows in log order; ordinary is dropped next to another label; no label is one empty row
+    rows: list[PostLabel] = []
+    for number, post in enumerate(round_posts, start=1):
+        post_quotes = quotes[number]
+        if len(post_quotes) > 1:
+            post_quotes.pop("ordinary", None)
+        if not post_quotes:
+            rows.append(unlabelled(post))
+        rows.extend(
+            unlabelled(post).model_copy(update={"label": label, "quote": quote})
+            for label, quote in post_quotes.items()
+        )
+    return RoundConduct(round=round_number, labels=rows)
 
 
 async def label_rounds(
@@ -174,19 +268,32 @@ async def label_rounds(
 
     Returns one result per labelled round, in round order.
     """
-    raise NotImplementedError
+    # The semaphore caps the calls waiting on the labeller
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def label_one(round_number: int) -> RoundConduct:
+        async with semaphore:
+            return await label_round(round_number, posts, labeller_fn)
+
+    labelled_rounds = sorted(r for r in rounds if r >= 2)
+    return list(await asyncio.gather(*(label_one(r) for r in labelled_rounds)))
 
 
 def role_of(seller_id: str, undercover_id: str | None) -> Role:
     """Return "undercover" for `undercover_id`, else "ordinary"."""
-    raise NotImplementedError
+    return "undercover" if seller_id == undercover_id else "ordinary"
 
 
 def join_roles(
     results: list[RoundConduct], undercover_id: str | None
 ) -> list[ConductLabelRow]:
     """Return every label row of `results`, in order, with its sender's role."""
-    raise NotImplementedError
+    # The labeller never saw the role; it is joined from the sender id
+    return [
+        ConductLabelRow(**label.model_dump(), role=role_of(label.sender, undercover_id))
+        for result in results
+        for label in result.labels
+    ]
 
 
 def count_posts(
@@ -200,7 +307,40 @@ def count_posts(
     A post counts once however many recipients it has. A seller that sent nothing in a
     round counts 0. Sorted by round, then seller id.
     """
-    raise NotImplementedError
+    # Each post counts once for its sender, however many recipients it has
+    sent: dict[tuple[int, str], int] = defaultdict(int)
+    for post in posts:
+        sent[(post.round, post.sender)] += 1
+    return [
+        PostCount(
+            seller_id=seller_id,
+            round=round_number,
+            posts_sent=sent[(round_number, seller_id)],
+            role=role_of(seller_id, undercover_id),
+        )
+        for round_number in sorted(r for r in rounds if r >= 2)
+        for seller_id in sorted(seller_ids)
+    ]
+
+
+def _cell(value: object) -> str:
+    """Return the CSV text of one value: None empty, lists joined by ";"."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ";".join(value)
+    return str(value)
+
+
+def _write_csv(path: Path, model: type[BaseModel], rows: list[BaseModel]) -> None:
+    """Write `rows` to `path` with the model's fields as columns."""
+    # Columns follow the model's field order
+    columns = list(model.model_fields)
+    with path.open("w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow([_cell(getattr(row, column)) for column in columns])
 
 
 def save_conduct(
@@ -212,7 +352,29 @@ def save_conduct(
     COUNTS_FILENAME has columns seller_id, round, posts_sent, role. Recipients are joined
     by ";"; a missing label or quote is an empty cell.
     """
-    raise NotImplementedError
+    # One CSV per model
+    labels_path = run_folder / LABELS_FILENAME
+    counts_path = run_folder / COUNTS_FILENAME
+    _write_csv(labels_path, ConductLabelRow, list(label_rows))
+    _write_csv(counts_path, PostCount, list(counts))
+    return labels_path, counts_path
+
+
+async def _load_run(
+    database: BaseDatabaseController,
+) -> tuple[set[str], list[ChannelPost], list[int]]:
+    """Read the sellers and channel posts of one run, and its rounds.
+
+    The rounds are those with a price list or a channel post.
+    """
+    seller_ids = await load_seller_ids(database)
+    posts = await load_channel_posts(database)
+    price_history = await load_price_history(database)
+    rounds = sorted(
+        {post.round for post in posts}
+        | {r for rounds_by_seller in price_history.values() for r in rounds_by_seller}
+    )
+    return seller_ids, posts, rounds
 
 
 async def run_conduct(
@@ -231,4 +393,42 @@ async def run_conduct(
     it names no seller of the run. Uses `anthropic.AsyncAnthropic(max_retries=5)`, which
     reads its key and base URL from the environment. Returns the labels and counts paths.
     """
-    raise NotImplementedError
+    # Read the run's sellers, posts and rounds
+    if db_type == "sqlite":
+        if not Path(experiment_name).exists():
+            raise FileNotFoundError(f"SQLite database file {experiment_name} not found")
+        sqlite_database = SQLiteDatabaseController(experiment_name)
+        await sqlite_database.initialize()
+        seller_ids, posts, rounds = await _load_run(sqlite_database)
+    else:
+        async with connect_to_postgresql_database(
+            schema=experiment_name,
+            host=postgres_host,
+            port=postgres_port,
+            password=postgres_password,
+            mode="existing",
+        ) as database:
+            seller_ids, posts, rounds = await _load_run(database)
+
+    # A pick that names no seller of the run stops the command before any call or file
+    run_folder = Path.cwd()
+    pick = load_undercover_pick(run_folder)
+    undercover_id = pick.seller_id if pick is not None else None
+    if undercover_id is not None and undercover_id not in seller_ids:
+        raise ValueError(
+            f"The undercover seller '{undercover_id}' in {INFORMANT_FILENAME} is not a seller of this run."
+        )
+
+    # The client reads its key and base URL from the environment
+    client = anthropic.AsyncAnthropic(max_retries=5)
+    results = await label_rounds(
+        posts,
+        rounds,
+        make_anthropic_labeller(client),
+        max_concurrency=max_concurrency,
+    )
+    return save_conduct(
+        join_roles(results, undercover_id),
+        count_posts(posts, seller_ids, rounds, undercover_id),
+        run_folder,
+    )
