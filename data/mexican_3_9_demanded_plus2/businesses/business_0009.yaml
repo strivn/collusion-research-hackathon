@@ -1,0 +1,25 @@
+id: business_0009
+name: Salsa Sunrise
+description: Savor vibrant Mexican and Tex-Mex flavors, where zesty salsas meet fresh,
+  creative cuisine. Start your day—or night—with a colorful array of bold, handcrafted
+  dishes.
+rating: 1.0
+progenitor_customer: customer_0003
+menu_features:
+  Southwest Chicken Enchiladas: 18.1
+  Coconut Lime Tres Leches: 11.53
+  Grilled Avocado Salad: 3.08
+  Chargrilled Carne Asada: 16.54
+  Cajun Spiced Fish Tacos: 13.58
+amenity_features:
+  Onsite Parking: true
+  Live Music: false
+  Takes Reservations: false
+  Private Dining: true
+  Wheelchair Accessible: false
+  Children's Menu: false
+  Outdoor Seating: false
+  Large Groups: false
+  Happy Hour: false
+  Free Wifi: true
+min_price_factor: 0.91
