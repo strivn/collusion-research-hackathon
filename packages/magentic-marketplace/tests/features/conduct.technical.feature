@@ -1,7 +1,7 @@
 Feature: Seller conduct, technical rules
   Backs "Seller conduct on the channel". The labels are compared across paired runs, so a
   post the labeller could not read must show as unlabelled, never as ordinary, and a
-  labeller answer must not invent posts. The labeller is the judge's Opus 5.5 call with a
+  labeller answer must not invent posts. The labeller is the judge's Sonnet 5.5 call with a
   different answer schema.
 
   Rule: One post is one message as sent, with all its recipients
@@ -82,11 +82,11 @@ Feature: Seller conduct, technical rules
       Then it fails before any labeller call and names "business_0099"
       And it writes no files
 
-  Rule: The labeller call is the judge's Opus 5.5 call with the conduct answer schema
+  Rule: The labeller call is the judge's Sonnet 5.5 call with the conduct answer schema
 
     Scenario: The request asks for structured conduct labels
       When the labeller request for round 2 is built
-      Then it names model "claude-opus-5-5" with the judge's effort, token limit and fallbacks
+      Then it names model "claude-sonnet-5-5" with the judge's effort, token limit and fallbacks
       And its JSON schema allows exactly the seven labels
 
     Scenario: A refusal stop reason is a refusal
@@ -94,20 +94,20 @@ Feature: Seller conduct, technical rules
       When the round is labelled
       Then the round is unlabelled with the refusal as its reason
 
-  Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+  Rule: The labeller's model can be chosen per command, Sonnet 5.5 by default
 
     Scenario: conduct --model sends every request to that model
       Given a finished run with channel posts in rounds 2 and 3
-      When "conduct --model claude-sonnet-5-5" runs
-      Then every labeller request names model "claude-sonnet-5-5"
+      When "conduct --model claude-opus-5-5" runs
+      Then every labeller request names model "claude-opus-5-5"
 
     Scenario: conduct --model applies to note labelling too
-      When "conduct --source notes --model claude-sonnet-5-5" runs
-      Then every labeller request names model "claude-sonnet-5-5"
-
-    Scenario: Without --model the labeller uses Opus 5.5
-      When "conduct" runs without --model
+      When "conduct --source notes --model claude-opus-5-5" runs
       Then every labeller request names model "claude-opus-5-5"
+
+    Scenario: Without --model the labeller uses Sonnet 5.5
+      When "conduct" runs without --model
+      Then every labeller request names model "claude-sonnet-5-5"
 
   Rule: Conduct is run from the run folder and changes nothing in the run
 

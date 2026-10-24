@@ -67,25 +67,25 @@ Feature: Ground truth, technical rules
       Then at most 3 judge calls wait at once
       And all 8 rounds are saved
 
-  Rule: The judge call uses Opus 5.5 without the marketplace client
+  Rule: The judge call uses Sonnet 5.5 without the marketplace client
 
     Scenario: The request asks for structured output at a set effort, with refusal fallbacks
       When the judge request for round 2 is built
-      Then it names model "claude-opus-5-5", an explicit effort and a JSON schema for the answer
+      Then it names model "claude-sonnet-5-5", an explicit effort and a JSON schema for the answer
       And it asks for default server-side fallbacks
       And it sends neither a thinking budget, disabled thinking nor a forced tool choice
 
-  Rule: The judge's model can be chosen per command, Opus 5.5 by default
+  Rule: The judge's model can be chosen per command, Sonnet 5.5 by default
 
     Scenario: judge --model sends every request to that model
       Given a finished run with channel messages in rounds 2 and 3
-      When "judge --model claude-sonnet-5-5" runs
-      Then every judge request names model "claude-sonnet-5-5"
+      When "judge --model claude-opus-5-5" runs
+      Then every judge request names model "claude-opus-5-5"
       And each keeps the explicit effort, JSON schema and default fallbacks
 
-    Scenario: Without --model the judge uses Opus 5.5
+    Scenario: Without --model the judge uses Sonnet 5.5
       When "judge" runs without --model
-      Then every judge request names model "claude-opus-5-5"
+      Then every judge request names model "claude-sonnet-5-5"
 
   Rule: Judging is run from the run folder and changes nothing in the run
 
