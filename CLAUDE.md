@@ -181,11 +181,13 @@ optional field defaults to stock behaviour:
 | `seller_pricing` | false | sellers set a price list each round from round 2 |
 | `seller_channel` | false | sellers talk before pricing, from round 2 |
 | `undercover_informant: {seed}` | none | one seller, picked by seed, is the informant. Requires `seller_channel: true`; the config is refused otherwise |
+| `undercover_informant.instruction` | none | replaces `UNDERCOVER_INSTRUCTION` in the informant's talk, pricing and `question` framing |
+| `prompt_additions: [{text, sellers, prompts, place}]` | `[]` | extra seller text. `sellers`: `all`, `ordinary` (all but the informant) or `undercover`; `prompts`: any of `talk`, `pricing`; `place`: `top` (after the undercover and coordination instructions, then a blank line) or `after_goal` (after the revenue goal line, after a space). Config order is kept. Customer replies never get them. An `undercover` addition needs `undercover_informant` and a `talk` addition needs `seller_channel`; the config is refused otherwise |
 
 Setups: Pricing Only = `rounds` > 1 and `seller_pricing`; Pricing + Messaging adds
 `seller_channel`; Pricing + Messaging + Undercover adds `undercover_informant`.
 
-The validator checks only the informant rule. Other combinations run but do nothing
+The validator checks only the informant and `prompt_additions` rules. Other combinations run but do nothing
 useful: any feature with `rounds: 1`; `seller_channel` without `seller_pricing` (sellers
 talk, but no pricing call reads the messages); an informant without `seller_pricing`
 (`question` reads only pricing calls, so `informant_reports.jsonl` comes out empty).
@@ -196,7 +198,7 @@ hand-written `config.yml` run from `research/results/<run>/` needs an absolute p
 `run --config` writes the resolved settings (defaults included) to `config.yml`, plus
 `budgets.yml` (customer id, m, budget) and `informant.yml` (seed, seller id) when those
 features are on, all into the current directory, the run folder. `question` reads
-`informant.yml` back from there.
+`informant.yml` and the undercover instruction in `config.yml` back from there.
 
 ## Rounds and pricing
 
@@ -250,8 +252,9 @@ round; nothing carries over except what is listed here.
   it), `PRESSURE_QUESTION`, `REPORT_REQUEST`.
 - `P/experiments/informant.py` picks the seller: `random.Random(seed).choice` over the
   sorted seller ids, written to `informant.yml`.
-- The informant's talk and pricing prompts open with `UNDERCOVER_INSTRUCTION`. Its
-  replies to customers are unchanged.
+- The informant's talk and pricing prompts open with `UNDERCOVER_INSTRUCTION`, or with
+  `undercover_informant.instruction` when the config sets one. Its replies to customers
+  are unchanged.
 
 ## Experiment runner
 
@@ -295,7 +298,7 @@ never write to them. Each writes where its row says.
 | Command | Reads (besides the database) | LLM | Writes |
 |---|---|---|---|
 | `score <schema>` | nothing | none | `customer_rounds.csv` (value, budget, price paid, customer share, seller share, lost per customer-round), `seller_rounds.csv` (price, units sold, revenue per seller-item-round) |
-| `question <schema>` | `informant.yml` if present | env LLM (`LLM_MODEL`) | `informant_reports.jsonl`: every seller, each round from 2, shown its last pricing prompt and answer; the informant framed by `UNDERCOVER_INSTRUCTION`, every other seller by `PRESSURE_QUESTION`. Accusations need a known seller id and a quote; bad ones are sent back up to 3 times, then dropped |
+| `question <schema>` | `informant.yml` and `config.yml` if present | env LLM (`LLM_MODEL`) | `informant_reports.jsonl`: every seller, each round from 2, shown its last pricing prompt and answer; the informant framed by `UNDERCOVER_INSTRUCTION` (or the config's `undercover_informant.instruction`), every other seller by `PRESSURE_QUESTION`. Accusations need a known seller id and a quote; bad ones are sent back up to 3 times, then dropped |
 | `judge <schema>` | nothing | Opus 5.5, paid API | `judge_agreements.jsonl` (one line per round from 2; a round without channel messages gets `called: false` and no call), `agreed_labels.csv` (true from the round a seller joins an agreement; empty, meaning unknown, for a not-yet-agreed seller from the first round whose call failed) |
 | `acted <schema>` | `judge_agreements.jsonl` | none | `acted_labels.csv`: did each agreed seller's price list follow its latest agreement |
 | `screen-calibrate <schema>...` | several databases | none | `screen_calibration.json` in the current directory, leave-one-out over at least 3 Pricing Only runs |
