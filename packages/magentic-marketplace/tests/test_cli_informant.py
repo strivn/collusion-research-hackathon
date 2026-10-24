@@ -4,8 +4,10 @@ Feature files: tests/features/informants.feature and informants.technical.featur
 Covers the scenario "The same seed picks the same undercover seller" (two runs), the
 Rule "The undercover seller differs from other sellers only by the instruction in its
 talk and pricing" at the run level (which seller is built undercover, prompts of an S4
-run against the same S3 run, the directory entry), and the technical Rule "The
-undercover pick is recorded in the run folder".
+run against the same S3 run, the directory entry), the technical Rule "The
+undercover pick is recorded in the run folder", and the run-level scenarios of the
+technical Rule "Each repetition plants a different seller until every seller has been
+planted" (informant.yml for a position, a single run without a position).
 
 "S3 run" = channel on, seller pricing on, 3 rounds. "S4 run" = S3 plus
 `undercover_informant`. The CLI tests replace `run_marketplace_experiment` with a
@@ -18,6 +20,7 @@ since the pick is the implementation's.
 """
 
 import asyncio
+import random
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -580,6 +583,54 @@ async def test_run_without_the_switch_writes_no_pick(run_folder, fake_run):
     # Then the run folder holds no informant.yml
     assert len(fake_run) == 3
     assert not (run_folder / "informant.yml").exists()
+
+
+# Rule: Each repetition plants a different seller until every seller has been planted
+
+
+def seller_at(seed: int, position: int) -> str:
+    """Return the seller at `position` of the sorted seller ids shuffled by `seed`.
+
+    Computed here, independent of `pick_undercover_seller`.
+    """
+    ids = list(SELLER_IDS)
+    random.Random(seed).shuffle(ids)
+    return ids[position % len(ids)]
+
+
+def test_informant_yml_records_the_seed_and_the_planted_seller(
+    monkeypatch, tmp_path, run_folder, fake_run
+):
+    """Scenario: informant.yml records the seed and the planted seller."""
+    # Given a config.yml with the undercover informant on, informant seed 7 and
+    # position 2
+    config = s4_config(tmp_path, undercover_informant={"seed": SEED, "position": 2})
+
+    # When the run starts
+    run_cli(monkeypatch, "run", "--config", str(config), "--server-port", "18999")
+
+    # Then the run folder holds informant.yml with the seed 7 and the seller at
+    # position 2
+    assert read_pick(run_folder) == {"seed": SEED, "seller_id": seller_at(SEED, 2)}
+
+
+def test_single_run_without_a_position_plants_the_first_of_the_shuffle(
+    monkeypatch, tmp_path, run_folder, fake_run
+):
+    """Scenario: A single run without a position plants the first seller of the shuffle."""
+    # Given a config.yml with the undercover informant on, informant seed 7 and no
+    # position
+    config = s4_config(tmp_path)
+    assert "position" not in yaml.safe_load(config.read_text())["undercover_informant"]
+
+    # When the run starts
+    run_cli(monkeypatch, "run", "--config", str(config), "--server-port", "18999")
+
+    # Then it plants the same seller as position 0 with seed 7
+    planted = read_pick(run_folder)["seller_id"]
+    assert planted == seller_at(SEED, 0)
+    for cohort in fake_run:
+        assert [sid for sid, on in undercover_flags(cohort).items() if on] == [planted]
 
 
 # Scenario: The same seed picks the same undercover seller

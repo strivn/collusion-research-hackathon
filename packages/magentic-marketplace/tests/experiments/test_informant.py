@@ -2,11 +2,15 @@
 
 Covers the scenario "The same seed picks the same undercover seller" at the function
 level, the technical Rules "The undercover seller is always one of the run's sellers"
-and "The undercover pick is recorded in the run folder" (the file format), and the Rule
-"The undercover informant needs the seller channel" (config validation). Run wiring
-lives in tests/test_cli_informant.py.
+and "The undercover pick is recorded in the run folder" (the file format), the Rule
+"Each repetition plants a different seller until every seller has been planted" at the
+function level (pick by position, wrap-around, order independence, config default), and
+the Rule "The undercover informant needs the seller channel" (config validation). Run
+wiring lives in tests/test_cli_informant.py, the experiment runner in
+tests/experiments/test_experiment_runner.py.
 """
 
+import random
 from pathlib import Path
 
 import pytest
@@ -81,6 +85,57 @@ def test_pick_does_not_depend_on_load_order():
 
     # Then both picks are the same seller
     assert in_file_order == in_reverse
+
+
+# Rule: Each repetition plants a different seller until every seller has been planted
+
+
+def seller_at(seed: int, position: int) -> str:
+    """Return the seller at `position` of the sorted seller ids shuffled by `seed`.
+
+    Computed here, independent of `pick_undercover_seller`.
+    """
+    ids = sorted(FILE_ORDER)
+    random.Random(seed).shuffle(ids)
+    return ids[position % len(ids)]
+
+
+@pytest.mark.parametrize("position", range(9))
+def test_position_picks_that_place_in_the_seed_shuffle(position):
+    """Rule: Each repetition plants a different seller ... (pick at each position)."""
+    assert pick_undercover_seller(list(FILE_ORDER), 7, position) == seller_at(
+        7, position
+    )
+
+
+def test_positions_0_to_8_pick_every_seller_once():
+    """Scenario: More repetitions than sellers wraps around (first 9, function level)."""
+    picks = [pick_undercover_seller(list(FILE_ORDER), 7, p) for p in range(9)]
+
+    assert sorted(picks) == sorted(FILE_ORDER)
+
+
+@pytest.mark.parametrize("position", [9, 10, 20])
+def test_position_past_the_last_seller_wraps_around(position):
+    """Scenario: More repetitions than sellers wraps around to the first (function level)."""
+    assert pick_undercover_seller(
+        list(FILE_ORDER), 7, position
+    ) == pick_undercover_seller(list(FILE_ORDER), 7, position % 9)
+
+
+def test_pick_at_a_position_does_not_depend_on_load_order():
+    """Rule: Each repetition plants a different seller ... (any load order, position 2)."""
+    reverse = list(reversed(FILE_ORDER))
+
+    assert pick_undercover_seller(reverse, 7, 2) == pick_undercover_seller(
+        list(FILE_ORDER), 7, 2
+    )
+
+
+def test_default_position_is_the_first_of_the_shuffle():
+    """Scenario: A single run without a position plants the first seller of the shuffle."""
+    assert UndercoverConfig(seed=7).position == 0
+    assert pick_undercover_seller(list(FILE_ORDER), 7) == seller_at(7, 0)
 
 
 # Rule: The undercover pick is recorded in the run folder (file format)

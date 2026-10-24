@@ -18,11 +18,15 @@ class BudgetConfig(BaseModel):
 
 
 class UndercoverConfig(BaseModel):
-    """Which seller is the undercover informant: one seller picked by `seed`."""
+    """Which seller is the undercover informant.
+
+    The seller at `position` in the run's seller ids shuffled by `seed`, wrapping around.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     seed: int
+    position: int = 0
 
 
 class RunConfig(BaseModel):

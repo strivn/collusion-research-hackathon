@@ -86,7 +86,9 @@ async def run_marketplace_experiment(
     undercover_seller_id: str | None = None
     if undercover_informant is not None:
         undercover_seller_id = pick_undercover_seller(
-            [business.id for business in businesses], undercover_informant.seed
+            [business.id for business in businesses],
+            undercover_informant.seed,
+            undercover_informant.position,
         )
         save_undercover_pick(
             UndercoverPick(
