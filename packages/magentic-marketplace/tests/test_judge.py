@@ -4,8 +4,8 @@ Covers the business Rules "The judge sees a round's channel messages and each se
 prices up to that round, nothing else" and "A seller is agreed from the round it joins an
 agreement onward", and the technical Rules (tests/features/ground_truth.technical.feature)
 from "One channel message is shown once, with all its recipients" to "The judge call uses
-Opus 5.5 without the marketplace client", plus the request side of "The judge's model can
-be chosen per command, Opus 5.5 by default". The CLI scenarios live in
+Sonnet 5.5 without the marketplace client", plus the request side of "The judge's model can
+be chosen per command, Sonnet 5.5 by default". The CLI scenarios live in
 tests/test_cli_judge.py.
 
 Runs are real SQLite databases holding agent rows (profiles from `data/mexican_3_9`) and
@@ -736,7 +736,7 @@ async def test_never_more_rounds_in_flight_than_the_limit(tmp_path):
     assert all(j.called and j.error is None for j in saved)
 
 
-# Rule: The judge call uses Opus 5.5 without the marketplace client
+# Rule: The judge call uses Sonnet 5.5 without the marketplace client
 
 
 def find_keys(value: Any, key: str) -> list[Any]:
@@ -763,8 +763,8 @@ def test_request_asks_for_structured_output_with_fallbacks():
     )
     request = build_judge_request(prompt)
 
-    # Then it names model "claude-opus-5-5", an explicit effort and a JSON schema
-    assert request["model"] == JUDGE_MODEL == "claude-opus-5-5"
+    # Then it names model "claude-sonnet-5-5", an explicit effort and a JSON schema
+    assert request["model"] == JUDGE_MODEL == "claude-sonnet-5-5"
     assert request["max_tokens"] == JUDGE_MAX_TOKENS
     assert request["messages"] == [{"role": "user", "content": prompt}]
     output_config = request["extra_body"]["output_config"]
@@ -831,9 +831,9 @@ async def test_anthropic_judge_lets_api_errors_through():
         await make_anthropic_judge(client)("the prompt")
 
 
-# Rule: The judge's model can be chosen per command, Opus 5.5 by default
+# Rule: The judge's model can be chosen per command, Sonnet 5.5 by default
 
-SONNET = "claude-sonnet-5-5"
+OPUS = "claude-opus-5-5"
 
 
 def without_model(request: dict[str, Any]) -> dict[str, Any]:
@@ -849,10 +849,10 @@ def test_request_names_the_chosen_model_and_keeps_the_rest():
         {SELLER_4: {1: {EMPANADAS: 10.0}}},
     )
 
-    chosen = build_judge_request(prompt, model=SONNET)
+    chosen = build_judge_request(prompt, model=OPUS)
 
-    # Then the request names model "claude-sonnet-5-5"
-    assert chosen["model"] == SONNET
+    # Then the request names model "claude-opus-5-5"
+    assert chosen["model"] == OPUS
     # And it keeps the explicit effort, JSON schema and default fallbacks
     assert without_model(chosen) == without_model(build_judge_request(prompt))
     assert chosen["extra_body"]["output_config"]["effort"] == JUDGE_EFFORT
@@ -861,10 +861,10 @@ def test_request_names_the_chosen_model_and_keeps_the_rest():
     assert FALLBACK_BETA in chosen["extra_headers"]["anthropic-beta"]
 
 
-def test_request_defaults_to_opus():
-    """Scenario: Without --model the judge uses Opus 5.5 (the request built by default)."""
+def test_request_defaults_to_sonnet():
+    """Scenario: Without --model the judge uses Sonnet 5.5 (the request built by default)."""
     assert build_judge_request("the prompt")["model"] == JUDGE_MODEL
-    assert JUDGE_MODEL == "claude-opus-5-5"
+    assert JUDGE_MODEL == "claude-sonnet-5-5"
 
 
 async def test_ask_anthropic_sends_the_chosen_model():
@@ -872,37 +872,37 @@ async def test_ask_anthropic_sends_the_chosen_model():
     expected = answer()
     client, calls = fake_client(response("end_turn", expected.model_dump_json()))
 
-    result = await ask_anthropic(client, "the prompt", JudgeAnswer, model=SONNET)
+    result = await ask_anthropic(client, "the prompt", JudgeAnswer, model=OPUS)
 
     assert result == expected
-    assert calls == [build_judge_request("the prompt", JudgeAnswer, model=SONNET)]
-    assert calls[0]["model"] == SONNET
+    assert calls == [build_judge_request("the prompt", JudgeAnswer, model=OPUS)]
+    assert calls[0]["model"] == OPUS
 
 
 async def test_anthropic_judge_sends_the_chosen_model():
     """Scenario: judge --model sends every request to that model (the Anthropic judge)."""
     expected = answer(agreement(SELLER_4, SELLER_7))
     client, calls = fake_client(response("end_turn", expected.model_dump_json()))
-    judge = make_anthropic_judge(client, model=SONNET)
+    judge = make_anthropic_judge(client, model=OPUS)
 
     # Every call of one judge goes to the chosen model
     assert await judge("round 2 prompt") == expected
     assert await judge("round 3 prompt") == expected
 
-    assert [call["model"] for call in calls] == [SONNET, SONNET]
+    assert [call["model"] for call in calls] == [OPUS, OPUS]
     assert calls == [
-        build_judge_request("round 2 prompt", model=SONNET),
-        build_judge_request("round 3 prompt", model=SONNET),
+        build_judge_request("round 2 prompt", model=OPUS),
+        build_judge_request("round 3 prompt", model=OPUS),
     ]
 
 
-async def test_anthropic_judge_defaults_to_opus():
-    """Scenario: Without --model the judge uses Opus 5.5 (the Anthropic judge)."""
+async def test_anthropic_judge_defaults_to_sonnet():
+    """Scenario: Without --model the judge uses Sonnet 5.5 (the Anthropic judge)."""
     client, calls = fake_client(response("end_turn", answer().model_dump_json()))
 
     await make_anthropic_judge(client)("the prompt")
 
-    assert [call["model"] for call in calls] == ["claude-opus-5-5"]
+    assert [call["model"] for call in calls] == ["claude-sonnet-5-5"]
 
 
 # Labels file

@@ -5,7 +5,7 @@ refused" of the Rule "A labels file that cannot be read stops the command before
 call", the scenario "The notes command writes conduct_notes_labels.csv into the run
 folder" of the Rule "`conduct --source notes` writes only the notes labels file", and
 the scenario "conduct --model applies to note labelling too" of the Rule "The labeller's
-model can be chosen per command, Opus 5.5 by default".
+model can be chosen per command, Sonnet 5.5 by default".
 
 A bad labels file is tried on the Pricing + Messaging run of tests/test_cli_conduct.py
 (three mexican_3_9 sellers, two posts in round 2). The notes command runs on a Pricing
@@ -91,7 +91,7 @@ CODED_ENTRY = {
     "name": "coded",
     "definition": "uses vague, indirect or encoded wording to coordinate without saying so",
 }
-SONNET = "claude-sonnet-5-5"
+OPUS = "claude-opus-5-5"
 TIMEOUT = 120
 
 
@@ -460,7 +460,7 @@ async def test_notes_command_writes_conduct_notes_labels_into_the_run_folder(
     assert not (run_folder / LABELS_FILENAME).exists()
     assert not (run_folder / COUNTS_FILENAME).exists()
     assert result.stdout.count("Wrote ") == 1
-    # One Opus 5.5 call per round from 2, with the file's labels in prompt and schema
+    # One Sonnet 5.5 call per round from 2, with the file's labels in prompt and schema
     assert notes_labeller.paths == ["/v1/messages"] * 2
     prompts = notes_labeller.prompts()
     assert sorted(re.findall(r"^Notes in round (\d+):$", "\n".join(prompts), re.M)) == [
@@ -478,7 +478,7 @@ async def test_notes_command_writes_conduct_notes_labels_into_the_run_folder(
             assert sorted(enum) == sorted([*offered, "ordinary"])
 
 
-# Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+# Rule: The labeller's model can be chosen per command, Sonnet 5.5 by default
 
 
 async def test_conduct_model_applies_to_note_labelling_too(run_folder, notes_labeller):
@@ -486,7 +486,7 @@ async def test_conduct_model_applies_to_note_labelling_too(run_folder, notes_lab
     db_path = run_folder / "run.db"
     await write_pricing_only_run(db_path)
 
-    # When "conduct --source notes --model claude-sonnet-5-5" runs
+    # When "conduct --source notes --model claude-opus-5-5" runs
     result = conduct(
         run_folder,
         db_path,
@@ -496,13 +496,13 @@ async def test_conduct_model_applies_to_note_labelling_too(run_folder, notes_lab
         "--labels",
         str(EXAMPLE_LABELS),
         "--model",
-        SONNET,
+        OPUS,
     )
 
-    # Then every labeller request names model "claude-sonnet-5-5"
+    # Then every labeller request names model "claude-opus-5-5"
     assert result.returncode == 0, result.stderr
     assert notes_labeller.paths == ["/v1/messages"] * 2
-    assert [request["model"] for request in notes_labeller.requests] == [SONNET] * 2
+    assert [request["model"] for request in notes_labeller.requests] == [OPUS] * 2
     # The judge's effort, token limit and fallbacks stay as they were
     for request in notes_labeller.requests:
         assert request["max_tokens"] == JUDGE_MAX_TOKENS
