@@ -2,8 +2,8 @@ Feature: Prompt additions from the run config
   An addition has a text, the sellers who see it (all, ordinary, undercover), the prompts it
   goes in (talk, pricing) and its place (top, after_goal). Top additions come after the
   undercover and coordination instructions; after_goal ones follow the revenue goal line.
-  New seller instructions (a monitoring notice, a sting informant, a no-channel
-  coordination line) become config entries instead of code changes.
+  New seller instructions (a monitoring notice, an informant that proposes price fixing,
+  a no-channel coordination line) become config entries instead of code changes.
 
   Layout:
     A top addition is its own paragraph: it is followed by a blank line. An after_goal
