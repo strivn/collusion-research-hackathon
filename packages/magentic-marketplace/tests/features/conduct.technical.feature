@@ -94,6 +94,21 @@ Feature: Seller conduct, technical rules
       When the round is labelled
       Then the round is unlabelled with the refusal as its reason
 
+  Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+
+    Scenario: conduct --model sends every request to that model
+      Given a finished run with channel posts in rounds 2 and 3
+      When "conduct --model claude-sonnet-5-5" runs
+      Then every labeller request names model "claude-sonnet-5-5"
+
+    Scenario: conduct --model applies to note labelling too
+      When "conduct --source notes --model claude-sonnet-5-5" runs
+      Then every labeller request names model "claude-sonnet-5-5"
+
+    Scenario: Without --model the labeller uses Opus 5.5
+      When "conduct" runs without --model
+      Then every labeller request names model "claude-opus-5-5"
+
   Rule: Conduct is run from the run folder and changes nothing in the run
 
     Scenario: The command writes both files into the run folder

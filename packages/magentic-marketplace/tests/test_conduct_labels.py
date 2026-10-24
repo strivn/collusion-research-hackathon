@@ -8,7 +8,8 @@ schema allows exactly the offered labels", "An answer with labels outside the of
 ones is sent back at most three times" and "Notes are read from the run's price lists,
 one note per seller per round from 2", with supporting tests for "A labels file that
 cannot be read stops the command before any call" and "`conduct --source notes` writes
-only the notes labels file". The CLI scenarios ("A bad labels file is refused", "The
+only the notes labels file", and the notes side of "The labeller's model can be chosen
+per command, Opus 5.5 by default". The CLI scenarios ("A bad labels file is refused", "The
 notes command writes conduct_notes_labels.csv into the run folder") live in
 tests/test_cli_conduct_labels.py.
 
@@ -92,7 +93,11 @@ from magentic_marketplace.experiments.informant import (
     UndercoverPick,
     save_undercover_pick,
 )
-from magentic_marketplace.experiments.judge import ChannelPost, build_judge_request
+from magentic_marketplace.experiments.judge import (
+    JUDGE_MODEL,
+    ChannelPost,
+    build_judge_request,
+)
 from magentic_marketplace.marketplace.agents.business.pricing import PriceListLog
 from magentic_marketplace.platform.database.sqlite import connect_to_sqlite_database
 
@@ -279,18 +284,23 @@ async def write_notes_run(
 
 
 class LabellerFactory:
-    """Stands in for `conduct.make_anthropic_labeller`, recording the labels it is given."""
+    """Stands in for `conduct.make_anthropic_labeller`, recording the labels and model it is given."""
 
     def __init__(self, labeller: FakeLabeller):
         """Hand out `labeller` on every call."""
         self.labeller = labeller
         self.labels: list[LabelDefinitions] = []
+        self.models: list[str] = []
 
     def __call__(
-        self, client: Any, labels: LabelDefinitions = LABEL_DEFINITIONS
+        self,
+        client: Any,
+        labels: LabelDefinitions = LABEL_DEFINITIONS,
+        model: str = JUDGE_MODEL,
     ) -> FakeLabeller:
-        """Record `labels` and return the fake labeller."""
+        """Record `labels` and `model` and return the fake labeller."""
         self.labels.append(labels)
+        self.models.append(model)
         return self.labeller
 
 
@@ -1139,3 +1149,38 @@ async def test_note_rounds_are_labelled_concurrently_with_a_cap():
     for result, n in zip(results, notes, strict=True):
         assert result.error is None
         assert result.labels == [note_row(n, "ordinary", n.text)]
+
+
+# Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+
+SONNET = "claude-sonnet-5-5"
+
+
+async def test_notes_labeller_is_made_for_the_chosen_model(
+    tmp_path, run_folder, monkeypatch
+):
+    """Scenario: conduct --model applies to note labelling too (run_conduct)."""
+    db_path = tmp_path / "run.db"
+    await write_notes_run(db_path, rounds=3)
+    labeller = FakeLabeller(label_every_note("ordinary"))
+    factory = conduct_in(monkeypatch, run_folder, labeller)
+
+    # When the run's notes are labelled with model "claude-sonnet-5-5"
+    await run_conduct(str(db_path), db_type="sqlite", source="notes", model=SONNET)
+
+    # Then the labeller for every notes round is made for that model
+    assert factory.models == [SONNET]
+    assert len(labeller.prompts) == 2
+
+
+async def test_notes_labeller_defaults_to_opus(tmp_path, run_folder, monkeypatch):
+    """Scenario: Without --model the labeller uses Opus 5.5 (notes, run_conduct)."""
+    db_path = tmp_path / "run.db"
+    await write_notes_run(db_path, rounds=3)
+    factory = conduct_in(
+        monkeypatch, run_folder, FakeLabeller(label_every_note("ordinary"))
+    )
+
+    await run_conduct(str(db_path), db_type="sqlite", source="notes")
+
+    assert factory.models == ["claude-opus-5-5"]

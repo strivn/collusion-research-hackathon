@@ -1,12 +1,14 @@
 """End-to-end tests for the `judge` command (tests/features/ground_truth.technical.feature).
 
-Covers, through the real CLI in a subprocess, the technical Rule "Judging is run from the
-run folder and changes nothing in the run".
+Covers, through the real CLI in a subprocess, the technical Rules "Judging is run from
+the run folder and changes nothing in the run" and "The judge's model can be chosen per
+command, Opus 5.5 by default".
 
 Each run is a small SQLite file: three mexican_3_9 sellers (business_0001, business_0002,
 business_0004), one customer, an action row per round, a `PriceListLog` row per seller
 per round and `ChannelMessageLog` rows (one per recipient) for a message business_0004
-sent to the other two sellers in round 2 and nothing on the channel in round 3. The
+sent to the other two sellers in round 2 and nothing on the channel in round 3 (the
+model scenarios repeat round 2's messages in round 3, so two rounds are judged). The
 command runs as `python -m magentic_marketplace.cli judge <run.db> --db-type sqlite
 --env-file <file>` with the run folder as its working directory. Its judge is a local
 HTTP server speaking the Anthropic Messages API (`ANTHROPIC_BASE_URL` in the env file);
@@ -33,8 +35,12 @@ from pydantic import BaseModel
 
 from magentic_marketplace.experiments.judge import (
     AGREEMENTS_FILENAME,
+    FALLBACK_BETA,
+    JUDGE_EFFORT,
+    JUDGE_MAX_TOKENS,
     JUDGE_MODEL,
     LABELS_FILENAME,
+    JudgeAnswer,
     RoundJudgement,
 )
 from magentic_marketplace.experiments.utils import (
@@ -86,6 +92,7 @@ ANSWER = {
         }
     ]
 }
+SONNET = "claude-sonnet-5-5"
 TIMEOUT = 120
 
 
@@ -99,6 +106,7 @@ class FakeAnthropic:
         """Start serving on a free local port."""
         self.requests: list[dict[str, Any]] = []
         self.paths: list[str] = []
+        self.betas: list[str | None] = []
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -108,6 +116,7 @@ class FakeAnthropic:
                 """Record the request and reply with a Messages API message."""
                 length = int(self.headers.get("Content-Length", 0))
                 fake.paths.append(self.path)
+                fake.betas.append(self.headers.get("anthropic-beta"))
                 fake.requests.append(json.loads(self.rfile.read(length)))
                 body = json.dumps(
                     {
@@ -178,8 +187,8 @@ def log_row(created_at: datetime, agent_id: str, round_number: int, data: BaseMo
     )
 
 
-async def write_run(path: Path) -> None:
-    """Write a run with three sellers, ROUNDS rounds and channel messages in round 2."""
+async def write_run(path: Path, channel_rounds: tuple[int, ...] = (2,)) -> None:
+    """Write a run with three sellers, ROUNDS rounds and channel messages in `channel_rounds`."""
     clock = itertools.count()
 
     def now() -> datetime:
@@ -215,8 +224,8 @@ async def write_run(path: Path) -> None:
                     ),
                 )
             )
-            # Channel messages in round 2 only, one log row per recipient
-            if round_number == 2:
+            # Channel messages in `channel_rounds` only, one log row per recipient
+            if round_number in channel_rounds:
                 for sender, recipients, turn, text in [
                     (SELLER_4, [SELLER_2, SELLER_1], 1, HOLD_TEXT),
                     (SELLER_2, [SELLER_4], 2, DEAL_QUOTE),
@@ -268,8 +277,8 @@ def table_rows(path: Path) -> dict[str, list[tuple]]:
         }
 
 
-def judge(run_folder: Path, db_path: Path, server: FakeAnthropic):
-    """Run the real `judge` command on `db_path` from `run_folder`."""
+def judge(run_folder: Path, db_path: Path, server: FakeAnthropic, *args: str):
+    """Run the real `judge` command on `db_path` from `run_folder` with `args`."""
     env_file = run_folder.parent / "test.env"
     env_file.write_text(
         "\n".join(
@@ -297,6 +306,7 @@ def judge(run_folder: Path, db_path: Path, server: FakeAnthropic):
             "sqlite",
             "--env-file",
             str(env_file),
+            *args,
         ],
         cwd=run_folder,
         env=env,
@@ -386,3 +396,50 @@ async def test_run_database_is_untouched(run_folder, judge_server):
     assert after["logs"] == before["logs"]
     assert after["actions"] == before["actions"]
     assert after["agents"] == before["agents"]
+
+
+# Rule: The judge's model can be chosen per command, Opus 5.5 by default
+
+
+async def test_judge_model_option_sends_every_request_to_that_model(
+    run_folder, judge_server
+):
+    """Scenario: judge --model sends every request to that model."""
+    # Given a finished run with channel messages in rounds 2 and 3
+    db_path = run_folder / "run.db"
+    await write_run(db_path, channel_rounds=(2, 3))
+
+    # When "judge --model claude-sonnet-5-5" runs
+    result = judge(run_folder, db_path, judge_server, "--model", SONNET)
+
+    # Then every judge request names model "claude-sonnet-5-5"
+    assert result.returncode == 0, result.stderr
+    assert judge_server.paths == ["/v1/messages"] * 2
+    assert [request["model"] for request in judge_server.requests] == [SONNET] * 2
+    # And each keeps the explicit effort, JSON schema and default fallbacks
+    for request, beta in zip(judge_server.requests, judge_server.betas, strict=True):
+        assert request["max_tokens"] == JUDGE_MAX_TOKENS
+        assert request["output_config"]["effort"] == JUDGE_EFFORT
+        assert request["output_config"]["format"] == {
+            "type": "json_schema",
+            "schema": JudgeAnswer.model_json_schema(),
+        }
+        assert request["fallbacks"] == "default"
+        assert beta is not None
+        assert FALLBACK_BETA in beta
+
+
+async def test_judge_without_model_uses_opus(run_folder, judge_server):
+    """Scenario: Without --model the judge uses Opus 5.5."""
+    db_path = run_folder / "run.db"
+    await write_run(db_path, channel_rounds=(2, 3))
+
+    # When "judge" runs without --model
+    result = judge(run_folder, db_path, judge_server)
+
+    # Then every judge request names model "claude-opus-5-5"
+    assert result.returncode == 0, result.stderr
+    assert judge_server.paths == ["/v1/messages"] * 2
+    assert [request["model"] for request in judge_server.requests] == [
+        "claude-opus-5-5"
+    ] * 2

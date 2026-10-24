@@ -2,8 +2,10 @@
 
 Covers, through the real CLI in a subprocess, the Scenario Outline "A bad labels file is
 refused" of the Rule "A labels file that cannot be read stops the command before any
-call", and the scenario "The notes command writes conduct_notes_labels.csv into the run
-folder" of the Rule "`conduct --source notes` writes only the notes labels file".
+call", the scenario "The notes command writes conduct_notes_labels.csv into the run
+folder" of the Rule "`conduct --source notes` writes only the notes labels file", and
+the scenario "conduct --model applies to note labelling too" of the Rule "The labeller's
+model can be chosen per command, Opus 5.5 by default".
 
 A bad labels file is tried on the Pricing + Messaging run of tests/test_cli_conduct.py
 (three mexican_3_9 sellers, two posts in round 2). The notes command runs on a Pricing
@@ -43,7 +45,11 @@ from magentic_marketplace.experiments.conduct import (
     LABELS_FILENAME,
     NOTES_LABELS_FILENAME,
 )
-from magentic_marketplace.experiments.judge import JUDGE_MODEL
+from magentic_marketplace.experiments.judge import (
+    JUDGE_EFFORT,
+    JUDGE_MAX_TOKENS,
+    JUDGE_MODEL,
+)
 from magentic_marketplace.experiments.utils import (
     load_businesses_from_yaml,
     load_customers_from_yaml,
@@ -85,6 +91,7 @@ CODED_ENTRY = {
     "name": "coded",
     "definition": "uses vague, indirect or encoded wording to coordinate without saying so",
 }
+SONNET = "claude-sonnet-5-5"
 TIMEOUT = 120
 
 
@@ -469,3 +476,35 @@ async def test_notes_command_writes_conduct_notes_labels_into_the_run_folder(
         assert enums
         for enum in enums:
             assert sorted(enum) == sorted([*offered, "ordinary"])
+
+
+# Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+
+
+async def test_conduct_model_applies_to_note_labelling_too(run_folder, notes_labeller):
+    """Scenario: conduct --model applies to note labelling too."""
+    db_path = run_folder / "run.db"
+    await write_pricing_only_run(db_path)
+
+    # When "conduct --source notes --model claude-sonnet-5-5" runs
+    result = conduct(
+        run_folder,
+        db_path,
+        notes_labeller,
+        "--source",
+        "notes",
+        "--labels",
+        str(EXAMPLE_LABELS),
+        "--model",
+        SONNET,
+    )
+
+    # Then every labeller request names model "claude-sonnet-5-5"
+    assert result.returncode == 0, result.stderr
+    assert notes_labeller.paths == ["/v1/messages"] * 2
+    assert [request["model"] for request in notes_labeller.requests] == [SONNET] * 2
+    # The judge's effort, token limit and fallbacks stay as they were
+    for request in notes_labeller.requests:
+        assert request["max_tokens"] == JUDGE_MAX_TOKENS
+        assert request["output_config"]["effort"] == JUDGE_EFFORT
+        assert request["fallbacks"] == "default"

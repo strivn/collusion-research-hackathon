@@ -5,7 +5,8 @@ labels" to "Every seller gets a row per round from 2 with its number of delivere
 including zero", and the technical Rules (tests/features/conduct.technical.feature) from
 "One post is one message as sent, with all its recipients" to "The labeller call is the
 judge's Opus 5.5 call with the conduct answer schema", plus "No informant.yml makes every
-seller ordinary". The CLI scenarios ("Conduct is run from the run folder and changes
+seller ordinary" and the run_conduct side of "The labeller's model can be chosen per
+command, Opus 5.5 by default". The CLI scenarios ("Conduct is run from the run folder and changes
 nothing in the run", and "An informant.yml naming no seller of the run stops the
 command") live in tests/test_cli_conduct.py.
 
@@ -523,13 +524,24 @@ def test_posts_are_numbered_from_1_in_log_order():
 
 def conduct_in(
     monkeypatch: pytest.MonkeyPatch, run_folder: Path, labeller: FakeLabeller
-) -> None:
-    """Make `run_conduct` work from `run_folder` with `labeller` as its Opus call."""
+) -> list[str]:
+    """Make `run_conduct` work from `run_folder` with `labeller` as its Opus call.
+
+    Returns the list of models the labeller is made for, one per `run_conduct` call.
+    """
     monkeypatch.chdir(run_folder)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
-    monkeypatch.setattr(
-        conduct, "make_anthropic_labeller", lambda client, labels: labeller
-    )
+    models: list[str] = []
+
+    def make_labeller(
+        client: Any, labels: Any, model: str = JUDGE_MODEL
+    ) -> FakeLabeller:
+        """Record `model` and hand out `labeller`."""
+        models.append(model)
+        return labeller
+
+    monkeypatch.setattr(conduct, "make_anthropic_labeller", make_labeller)
+    return models
 
 
 RUN_POSTS = [
@@ -1144,3 +1156,73 @@ async def test_anthropic_labeller_lets_api_errors_through():
 
     with pytest.raises(anthropic.APIConnectionError):
         await labeller("the prompt")
+
+
+# Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+
+SONNET = "claude-sonnet-5-5"
+
+
+async def test_anthropic_labeller_sends_the_chosen_model():
+    """Scenario: conduct --model sends every request to that model (the Anthropic labeller)."""
+    expected = answer(labelled(1, ("joins_collusion", HOLD_TEXT)))
+    client, calls = fake_client(response("end_turn", expected.model_dump_json()))
+    labeller = make_anthropic_labeller(client, model=SONNET)
+
+    # Every call of one labeller goes to the chosen model
+    assert await labeller("round 2 prompt") == expected
+    assert await labeller("round 3 prompt") == expected
+
+    assert [call["model"] for call in calls] == [SONNET, SONNET]
+    # The judge's effort, token limit, schema and fallbacks stay as they were
+    assert calls == [
+        build_judge_request("round 2 prompt", ConductAnswer, model=SONNET),
+        build_judge_request("round 3 prompt", ConductAnswer, model=SONNET),
+    ]
+
+
+async def test_anthropic_labeller_defaults_to_opus():
+    """Scenario: Without --model the labeller uses Opus 5.5 (the Anthropic labeller)."""
+    client, calls = fake_client(response("end_turn", answer().model_dump_json()))
+
+    await make_anthropic_labeller(client)("the prompt")
+
+    assert [call["model"] for call in calls] == ["claude-opus-5-5"]
+
+
+async def test_run_conduct_makes_its_labeller_for_the_chosen_model(
+    tmp_path, monkeypatch
+):
+    """Scenario: conduct --model sends every request to that model (run_conduct)."""
+    # Given a finished run with channel posts in rounds 2 and 3
+    db_path = tmp_path / "run.db"
+    await write_run(db_path, RUN_POSTS, rounds=3)
+    run_folder = tmp_path / "run"
+    run_folder.mkdir()
+    labeller = FakeLabeller(label_every_post("joins_collusion"))
+    models = conduct_in(monkeypatch, run_folder, labeller)
+
+    # When the run's conduct is labelled with model "claude-sonnet-5-5"
+    await run_conduct(str(db_path), db_type="sqlite", model=SONNET)
+
+    # Then the labeller for every round is made for that model
+    assert models == [SONNET]
+    assert [r for r in (2, 3) if any(asks_about(p, r) for p in labeller.prompts)] == [
+        2,
+        3,
+    ]
+
+
+async def test_run_conduct_defaults_to_opus(tmp_path, monkeypatch):
+    """Scenario: Without --model the labeller uses Opus 5.5 (run_conduct)."""
+    db_path = tmp_path / "run.db"
+    await write_run(db_path, RUN_POSTS, rounds=3)
+    run_folder = tmp_path / "run"
+    run_folder.mkdir()
+    models = conduct_in(
+        monkeypatch, run_folder, FakeLabeller(label_every_post("joins_collusion"))
+    )
+
+    await run_conduct(str(db_path), db_type="sqlite")
+
+    assert models == ["claude-opus-5-5"]
