@@ -1,0 +1,24 @@
+id: business_0008
+name: Lime & Char
+description: Discover bright, bold flavors and wood-grilled classics at Lime & Char,
+  where modern Mexican and Tex-Mex favorites meet creative cocktails and crave-worthy
+  desserts. Every dish is crafted to bring a fresh twist to traditional cuisine in
+  a vibrant, welcoming space.
+rating: 1.0
+progenitor_customer: customer_0003
+menu_features:
+  Chargrilled Carne Asada: 14.78
+  Coconut Lime Tres Leches: 8.19
+  Southwest Chicken Enchiladas: 9.91
+amenity_features:
+  Onsite Parking: true
+  Live Music: false
+  Takes Reservations: true
+  Private Dining: true
+  Wheelchair Accessible: false
+  Children's Menu: true
+  Outdoor Seating: false
+  Large Groups: true
+  Happy Hour: false
+  Free Wifi: false
+min_price_factor: 0.93

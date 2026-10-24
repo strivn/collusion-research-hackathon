@@ -1,0 +1,22 @@
+id: business_0001
+name: Poblano Palate
+description: Experience bold and vibrant flavors inspired by Mexican and Tex-Mex classics
+  at Poblano Palate. From savory mains to sweet treats, our diverse menu is perfect
+  for food lovers seeking a fresh culinary adventure.
+rating: 1.0
+progenitor_customer: customer_0001
+menu_features:
+  Pineapple Jalapeno Agua Fresca: 2.73
+  Savory Pumpkin Empanadas: 10.78
+amenity_features:
+  Onsite Parking: false
+  Live Music: true
+  Takes Reservations: false
+  Private Dining: false
+  Wheelchair Accessible: false
+  Children's Menu: false
+  Outdoor Seating: true
+  Large Groups: true
+  Happy Hour: true
+  Free Wifi: false
+min_price_factor: 0.78
