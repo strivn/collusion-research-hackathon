@@ -1,15 +1,17 @@
 """End-to-end tests for the `conduct` command (tests/features/conduct.technical.feature).
 
 Covers, through the real CLI in a subprocess, the technical Rule "Conduct is run from the
-run folder and changes nothing in the run" and the scenario "An informant.yml naming no
+run folder and changes nothing in the run", the scenario "An informant.yml naming no
 seller of the run stops the command" of the Rule "The undercover seller is read from the
-run folder's informant.yml".
+run folder's informant.yml", and the posts scenarios of the Rule "The labeller's model
+can be chosen per command, Opus 5.5 by default".
 
 Each run is a small SQLite file: three mexican_3_9 sellers (business_0001, business_0002,
 business_0004), one customer, an action row per round, a `PriceListLog` row per seller
 per round and `ChannelMessageLog` rows (one per recipient) for two posts in round 2:
 business_0004 to the other two sellers, and business_0002's reply to business_0004.
-Round 3 has prices and nothing on the channel. The command runs as `python -m
+Round 3 has prices and nothing on the channel; the model scenarios repeat round 2's
+posts in round 3, so two rounds are labelled. The command runs as `python -m
 magentic_marketplace.cli conduct <run.db> --db-type sqlite --env-file <file>` with the
 run folder as its working directory. Its labeller is a local HTTP server speaking the
 Anthropic Messages API (`ANTHROPIC_BASE_URL` in the env file); every call gets the same
@@ -38,7 +40,12 @@ from pydantic import BaseModel
 
 from magentic_marketplace.experiments.conduct import COUNTS_FILENAME, LABELS_FILENAME
 from magentic_marketplace.experiments.informant import INFORMANT_FILENAME
-from magentic_marketplace.experiments.judge import JUDGE_MODEL
+from magentic_marketplace.experiments.judge import (
+    FALLBACK_BETA,
+    JUDGE_EFFORT,
+    JUDGE_MAX_TOKENS,
+    JUDGE_MODEL,
+)
 from magentic_marketplace.experiments.utils import (
     load_businesses_from_yaml,
     load_customers_from_yaml,
@@ -89,6 +96,7 @@ ANSWER = {
 }
 LABEL_COLUMNS = ["round", "sender", "recipients", "turn", "label", "quote", "role"]
 COUNT_COLUMNS = ["seller_id", "round", "posts_sent", "role"]
+SONNET = "claude-sonnet-5-5"
 TIMEOUT = 120
 
 
@@ -102,6 +110,7 @@ class FakeAnthropic:
         """Start serving on a free local port."""
         self.requests: list[dict[str, Any]] = []
         self.paths: list[str] = []
+        self.betas: list[str | None] = []
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -111,6 +120,7 @@ class FakeAnthropic:
                 """Record the request and reply with a Messages API message."""
                 length = int(self.headers.get("Content-Length", 0))
                 fake.paths.append(self.path)
+                fake.betas.append(self.headers.get("anthropic-beta"))
                 fake.requests.append(json.loads(self.rfile.read(length)))
                 body = json.dumps(
                     {
@@ -181,8 +191,8 @@ def log_row(created_at: datetime, agent_id: str, round_number: int, data: BaseMo
     )
 
 
-async def write_run(path: Path) -> None:
-    """Write a run with three sellers, ROUNDS rounds and two channel posts in round 2."""
+async def write_run(path: Path, channel_rounds: tuple[int, ...] = (2,)) -> None:
+    """Write a run with three sellers, ROUNDS rounds and two channel posts per round in `channel_rounds`."""
     clock = itertools.count()
 
     def now() -> datetime:
@@ -218,8 +228,8 @@ async def write_run(path: Path) -> None:
                     ),
                 )
             )
-            # Channel posts in round 2 only, one log row per recipient
-            if round_number == 2:
+            # Channel posts in `channel_rounds` only, one log row per recipient
+            if round_number in channel_rounds:
                 for sender, recipients, turn, text in [
                     (SELLER_4, [SELLER_2, SELLER_1], 1, HOLD_TEXT),
                     (SELLER_2, [SELLER_4], 2, DEAL_QUOTE),
@@ -278,8 +288,8 @@ def table_rows(path: Path) -> dict[str, list[tuple]]:
         }
 
 
-def conduct(run_folder: Path, db_path: Path, server: FakeAnthropic):
-    """Run the real `conduct` command on `db_path` from `run_folder`."""
+def conduct(run_folder: Path, db_path: Path, server: FakeAnthropic, *args: str):
+    """Run the real `conduct` command on `db_path` from `run_folder` with `args`."""
     env_file = run_folder.parent / "test.env"
     env_file.write_text(
         "\n".join(
@@ -307,6 +317,7 @@ def conduct(run_folder: Path, db_path: Path, server: FakeAnthropic):
             "sqlite",
             "--env-file",
             str(env_file),
+            *args,
         ],
         cwd=run_folder,
         env=env,
@@ -439,3 +450,50 @@ async def test_informant_naming_no_seller_of_the_run_stops_the_command(
     # And it writes no files
     assert before == [INFORMANT_FILENAME]
     assert files_besides_the_database(run_folder) == before
+
+
+# Rule: The labeller's model can be chosen per command, Opus 5.5 by default
+
+
+async def test_conduct_model_option_sends_every_request_to_that_model(
+    run_folder, labeller_server
+):
+    """Scenario: conduct --model sends every request to that model."""
+    # Given a finished run with channel posts in rounds 2 and 3
+    db_path = run_folder / "run.db"
+    await write_run(db_path, channel_rounds=(2, 3))
+
+    # When "conduct --model claude-sonnet-5-5" runs
+    result = conduct(run_folder, db_path, labeller_server, "--model", SONNET)
+
+    # Then every labeller request names model "claude-sonnet-5-5"
+    assert result.returncode == 0, result.stderr
+    assert labeller_server.paths == ["/v1/messages"] * 2
+    assert [request["model"] for request in labeller_server.requests] == [SONNET] * 2
+    # The judge's effort, token limit, JSON schema and fallbacks stay as they were
+    for request, beta in zip(
+        labeller_server.requests, labeller_server.betas, strict=True
+    ):
+        assert request["max_tokens"] == JUDGE_MAX_TOKENS
+        assert request["output_config"]["effort"] == JUDGE_EFFORT
+        assert request["output_config"]["format"]["type"] == "json_schema"
+        assert "posts" in json.dumps(request["output_config"]["format"]["schema"])
+        assert request["fallbacks"] == "default"
+        assert beta is not None
+        assert FALLBACK_BETA in beta
+
+
+async def test_conduct_without_model_uses_opus(run_folder, labeller_server):
+    """Scenario: Without --model the labeller uses Opus 5.5."""
+    db_path = run_folder / "run.db"
+    await write_run(db_path, channel_rounds=(2, 3))
+
+    # When "conduct" runs without --model
+    result = conduct(run_folder, db_path, labeller_server)
+
+    # Then every labeller request names model "claude-opus-5-5"
+    assert result.returncode == 0, result.stderr
+    assert labeller_server.paths == ["/v1/messages"] * 2
+    assert [request["model"] for request in labeller_server.requests] == [
+        "claude-opus-5-5"
+    ] * 2
