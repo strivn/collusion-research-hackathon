@@ -158,11 +158,15 @@ async def run_experiment(
                 outcome = await _execute_run(spec, run_config_path, env_file)
             except Exception as error:  # a failed run never stops the others
                 outcome = RunOutcome(spec=spec, status="failed", error=repr(error))
-        data = load_run_config(run_config_path).data
+        run_config = load_run_config(run_config_path)
+        data = run_config.data
+        # Name the model that sets prices: the strategy model when set, else the env LLM
+        strategy = run_config.llm.seller_strategy
+        run_model = strategy.model if strategy is not None else model
         error_cell = (outcome.error or "").replace("\n", " ").replace("|", "/")
         row = (
             f"| {config.name}/{spec.run_name} | {config.rq} "
-            f"| {datetime.now():%Y-%m-%d %H:%M} | {spec.arm} | {model} | {data} "
+            f"| {datetime.now():%Y-%m-%d %H:%M} | {spec.arm} | {run_model} | {data} "
             f"| {spec.folder} | {outcome.status} | {error_cell} |"
         )
         async with tracker_lock:

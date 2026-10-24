@@ -67,7 +67,9 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
     @staticmethod
     def _get_cache_key(config: OpenAIConfig) -> str:
         """Generate cache key for a config."""
-        config_json = config.model_dump_json(include={"api_key", "provider"})
+        config_json = config.model_dump_json(
+            include={"api_key", "provider", "base_url"}
+        )
         return sha256(config_json.encode()).hexdigest()
 
     @staticmethod

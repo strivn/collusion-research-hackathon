@@ -96,6 +96,8 @@ async def generate(
     logger: MarketplaceLogger | None = None,
     log_metadata: dict[str, Any] | None = None,
     max_concurrency: int | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
     **kwargs: Any,
 ) -> tuple[str, Usage] | tuple[TResponseModel, Usage]:
     """Generate a completion using OpenAI SDK arguments.
@@ -111,6 +113,8 @@ async def generate(
         logger: Optional MarketplaceLogger for logging LLM calls
         log_metadata: Optional metadata to include with LLM logs
         max_concurrency: Optional, the maximum number of concurrent requests the returned client supports.
+        base_url: Optional endpoint for the OpenAI client; None reads OPENAI_BASE_URL.
+        api_key: Optional API key; None reads the provider's key variable.
         **kwargs: Additional provider-specific arguments
 
     Returns:
@@ -123,6 +127,8 @@ async def generate(
         "temperature": temperature,
         "max_tokens": max_tokens,
         "reasoning_effort": reasoning_effort,
+        "base_url": base_url,
+        "api_key": api_key,
     }
     config_kwargs = {k: v for k, v in config_kwargs.items() if v is not None}
     config = ConcreteConfigAdapter.validate_python(config_kwargs)

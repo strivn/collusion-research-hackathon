@@ -50,6 +50,7 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
         llm_config: BaseLLMConfig | None = None,
         round_number: int = 1,
         messages_after_index: int | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
     ):
         """Initialize the simple marketplace agent.
 
@@ -60,6 +61,8 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
             round_number: The round this agent acts in; tags its actions and LLM calls.
             messages_after_index: Ignore messages at or below this row index (earlier rounds).
                 None fetches every message (stock).
+            llm_kwargs: `generate` arguments (provider, model, ...) over `llm_config`;
+                None keeps `llm_config` (stock).
 
         """
         super().__init__(profile, base_url)
@@ -68,6 +71,7 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
 
         self.last_fetch_index: int | None = None
         self.llm_config = llm_config or BaseLLMConfig()
+        self.llm_kwargs = llm_kwargs or {}
         self._seen_message_indexes: set[int] = set()
 
     async def execute_action(self, action: BaseAction):
@@ -167,7 +171,7 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
 
         """
         # Use llm_config if provided, otherwise use kwargs directly
-        kwargs = {**self.llm_config.model_dump(), **kwargs}
+        kwargs = {**self.llm_config.model_dump(), **self.llm_kwargs, **kwargs}
         response, usage = await generate(
             prompt,
             logger=self.logger,
@@ -202,6 +206,7 @@ class BaseSimpleMarketplaceAgent(BaseAgent[TProfile]):
         # Use llm_config if provided, otherwise use kwargs directly
         kwargs = {
             **self.llm_config.model_dump(),
+            **self.llm_kwargs,
             **kwargs,
         }
         response, usage = await generate(
