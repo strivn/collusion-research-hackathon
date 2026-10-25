@@ -28,6 +28,7 @@ from magentic_marketplace.experiments.hand_labels import (
 )
 from magentic_marketplace.experiments.judge import JUDGE_MODEL, run_judge
 from magentic_marketplace.experiments.list_experiments import list_experiments
+from magentic_marketplace.experiments.price_talk import run_price_talk
 from magentic_marketplace.experiments.questioning import run_question
 from magentic_marketplace.experiments.round_scores import run_score
 from magentic_marketplace.experiments.run_analytics import run_analytics
@@ -281,6 +282,30 @@ def run_conduct_command(args):
     )
     for path in paths:
         print(f"Wrote {path}")
+
+
+def run_price_talk_command(args):
+    """Handle the price-talk subcommand."""
+    # The Anthropic key and any base URL come from the env file
+    load_dotenv(args.env_file)
+    if (args.experiment_name is None) == (args.from_json is None):
+        raise SystemExit(
+            "price-talk: give exactly one of a run (schema or SQLite file) or --from-json"
+        )
+    labels_path, sellers_path = asyncio.run(
+        run_price_talk(
+            args.experiment_name,
+            from_json=Path(args.from_json) if args.from_json else None,
+            db_type=args.db_type,
+            postgres_host=args.postgres_host,
+            postgres_port=args.postgres_port,
+            postgres_password=args.postgres_password,
+            max_concurrency=args.max_concurrency,
+            model=args.model,
+        )
+    )
+    print(f"Wrote {labels_path}")
+    print(f"Wrote {sellers_path}")
 
 
 def run_acted_command(args):
@@ -778,6 +803,62 @@ def main():
         help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
     )
     conduct_parser.add_argument(
+        "--postgres-password",
+        default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",
+    )
+
+    # price-talk subcommand
+    price_talk_parser = subparsers.add_parser(
+        "price-talk",
+        help="Label every seller-to-seller message of a finished run as price talk, refusal or other with Sonnet 5.5 by default; writes message labels and colluding sellers to the current directory",
+    )
+    price_talk_parser.set_defaults(func=run_price_talk_command)
+    price_talk_parser.add_argument(
+        "experiment_name",
+        nargs="?",
+        default=None,
+        help="Postgres schema name, or SQLite file path; leave out with --from-json",
+    )
+    price_talk_parser.add_argument(
+        "--from-json",
+        default=None,
+        help="Read the messages from a JSON export (key channel: round, turn, sender, recipient, text per delivery) instead of a database",
+    )
+    price_talk_parser.add_argument(
+        "--db-type",
+        choices=["sqlite", "postgres"],
+        default="postgres",
+        help="Type of database to read (default: postgres)",
+    )
+    price_talk_parser.add_argument(
+        "--env-file",
+        default=".env",
+        help=".env file with ANTHROPIC_API_KEY (default: .env)",
+    )
+    price_talk_parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=8,
+        help="Most messages waiting on the labeller at once (default: 8)",
+    )
+    price_talk_parser.add_argument(
+        "--model",
+        default=JUDGE_MODEL,
+        help=f"Anthropic model for the labeller (default: {JUDGE_MODEL})",
+    )
+    price_talk_parser.add_argument(
+        "--postgres-host",
+        default=os.environ.get("POSTGRES_HOST", "localhost"),
+        help="PostgreSQL host (default: POSTGRES_HOST env var or localhost)",
+    )
+    price_talk_parser.add_argument(
+        "--postgres-port",
+        type=int,
+        default=int(os.environ.get("POSTGRES_PORT", DEFAULT_POSTGRES_PORT)),
+        help=f"PostgreSQL port (default: POSTGRES_PORT env var or {DEFAULT_POSTGRES_PORT})",
+    )
+    price_talk_parser.add_argument(
         "--postgres-password",
         default=os.environ.get("POSTGRES_PASSWORD", "postgres"),
         help="PostgreSQL password (default: POSTGRES_PASSWORD env var or postgres)",

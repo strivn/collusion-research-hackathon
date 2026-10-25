@@ -11,7 +11,7 @@ import asyncio
 import csv
 import logging
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
@@ -131,11 +131,32 @@ JudgeFn = Callable[[str], Awaitable[JudgeAnswer]]
 AnswerT = TypeVar("AnswerT", bound=BaseModel)
 
 
+def group_channel_messages(messages: Iterable[ChannelMessageLog]) -> list[ChannelPost]:
+    """Return one post per message sent, from per-recipient deliveries in delivery order.
+
+    Deliveries with the same sender, round, turn and text are one message, with recipients
+    in delivery order; the first delivery of a message fixes its position.
+    """
+    posts: dict[tuple[str, int, int, str], ChannelPost] = {}
+    for message in messages:
+        key = (message.sender, message.round, message.turn, message.text)
+        if key not in posts:
+            posts[key] = ChannelPost(
+                sender=message.sender,
+                recipients=[],
+                round=message.round,
+                turn=message.turn,
+                text=message.text,
+            )
+        posts[key].recipients.append(message.recipient)
+    return list(posts.values())
+
+
 async def load_channel_posts(database: BaseDatabaseController) -> list[ChannelPost]:
     """Return every channel message of the run, one per message sent, in log order.
 
-    Each delivered message is logged once per recipient; rows with the same sender, round,
-    turn and text are one message, with recipients in log order.
+    Each delivered message is logged once per recipient; `group_channel_messages` joins
+    the rows of one message.
     """
     # Rows in log order; the first row of a message fixes its position
     rows = sorted(
@@ -144,20 +165,9 @@ async def load_channel_posts(database: BaseDatabaseController) -> list[ChannelPo
         ),
         key=lambda row: row.index or 0,
     )
-    posts: dict[tuple[str, int, int, str], ChannelPost] = {}
-    for row in rows:
-        log = ChannelMessageLog.model_validate(row.data.data)
-        key = (log.sender, log.round, log.turn, log.text)
-        if key not in posts:
-            posts[key] = ChannelPost(
-                sender=log.sender,
-                recipients=[],
-                round=log.round,
-                turn=log.turn,
-                text=log.text,
-            )
-        posts[key].recipients.append(log.recipient)
-    return list(posts.values())
+    return group_channel_messages(
+        ChannelMessageLog.model_validate(row.data.data) for row in rows
+    )
 
 
 async def load_price_history(
@@ -231,11 +241,12 @@ def build_judge_request(
     prompt: str,
     answer_model: type[BaseModel] = JudgeAnswer,
     model: str = JUDGE_MODEL,
+    effort: str = JUDGE_EFFORT,
 ) -> dict[str, Any]:
     """Return the keyword arguments for `AsyncAnthropic().messages.create` for one prompt.
 
     Model `model` (JUDGE_MODEL by default), JUDGE_MAX_TOKENS, one user message. `extra_body` carries
-    `output_config` (effort JUDGE_EFFORT and a `json_schema` format from `answer_model`) and
+    `output_config` (effort `effort`, JUDGE_EFFORT by default, and a `json_schema` format from `answer_model`) and
     `fallbacks: "default"`; `extra_headers` sets `anthropic-beta` to FALLBACK_BETA. Thinking
     is left at the model's default (adaptive); no tool choice is sent.
     """
@@ -246,7 +257,7 @@ def build_judge_request(
         "messages": [{"role": "user", "content": prompt}],
         "extra_body": {
             "output_config": {
-                "effort": JUDGE_EFFORT,
+                "effort": effort,
                 "format": {
                     "type": "json_schema",
                     "schema": answer_model.model_json_schema(),
@@ -263,6 +274,7 @@ async def ask_anthropic(
     prompt: str,
     answer_model: type[AnswerT],
     model: str = JUDGE_MODEL,
+    effort: str = JUDGE_EFFORT,
 ) -> AnswerT:
     """Call `client.messages.create` with `build_judge_request` and parse the answer.
 
@@ -270,7 +282,7 @@ async def ask_anthropic(
     blocks of the response into `answer_model`. API errors propagate.
     """
     response = await client.messages.create(
-        **build_judge_request(prompt, answer_model, model)
+        **build_judge_request(prompt, answer_model, model, effort)
     )
 
     # A refusal carries its category and explanation in stop_details when the SDK has them
