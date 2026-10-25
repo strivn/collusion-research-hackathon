@@ -19,6 +19,7 @@ from magentic_marketplace.experiments.informant import (
 from magentic_marketplace.experiments.round_scores import compute_round_tables
 from magentic_marketplace.experiments.run_config import (
     BudgetConfig,
+    FirstWordConfig,
     LLMConfig,
     SpeakingOrderConfig,
     UndercoverConfig,
@@ -88,6 +89,7 @@ async def run_marketplace_experiment(
     prompt_additions: list[PromptAddition] | None = None,
     minimal_talk_prompt: bool = False,
     random_speaking_order: SpeakingOrderConfig | None = None,
+    random_first_word: FirstWordConfig | None = None,
     llm: LLMConfig | None = None,
 ):
     """Run a marketplace experiment using YAML configuration files.
@@ -99,6 +101,7 @@ async def run_marketplace_experiment(
     `minimal_talk_prompt` gives every seller the minimal talk prompt.
     `random_speaking_order` makes the sellers of each talk turn speak one at a time in an
     order drawn from its seed and the round, logged as `speaking_order` rows.
+    `random_first_word` tells each talk call to start with a word drawn from its seed.
     `llm` picks the model per role and caps the request rate; None keeps the env LLM.
     """
     # Models per role and the request-rate cap; unset roles keep the env LLM
@@ -248,6 +251,9 @@ async def run_marketplace_experiment(
                         undercover_instruction=undercover_instruction,
                         prompt_additions=prompt_additions,
                         minimal_talk_prompt=minimal_talk_prompt,
+                        first_word_seed=random_first_word.seed
+                        if random_first_word is not None
+                        else None,
                         llm_kwargs=reply_llm,
                         strategy_llm_kwargs=strategy_llm,
                     )

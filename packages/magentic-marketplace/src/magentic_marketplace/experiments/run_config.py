@@ -43,6 +43,14 @@ class SpeakingOrderConfig(BaseModel):
     seed: int
 
 
+class FirstWordConfig(BaseModel):
+    """Each talk call is told to start with a word drawn from `seed`, round, turn and seller."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    seed: int
+
+
 class ModelConfig(BaseModel):
     """The LLM behind one role. The API key stays in the environment; `api_key_env` names it."""
 
@@ -120,6 +128,7 @@ class RunConfig(BaseModel):
     prompt_additions: list[PromptAddition] = []
     minimal_talk_prompt: bool = False
     random_speaking_order: SpeakingOrderConfig | None = None
+    random_first_word: FirstWordConfig | None = None
     llm: LLMConfig = LLMConfig()
 
     @model_validator(mode="after")

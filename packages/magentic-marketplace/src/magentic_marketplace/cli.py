@@ -178,6 +178,7 @@ def run_experiment_command(args):
             random_speaking_order=config.random_speaking_order
             if config is not None
             else None,
+            random_first_word=config.random_first_word if config is not None else None,
             llm=config.llm if config is not None else None,
         )
     )

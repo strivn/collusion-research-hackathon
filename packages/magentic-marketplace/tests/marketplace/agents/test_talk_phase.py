@@ -4,8 +4,9 @@ Covers the Rules from "With the channel off" onward at the unit and agent level:
 `TalkPhase` turn logic with fake `talk_turn` callables, `format_talk_prompt`,
 `format_pricing_prompt` / `set_round_prices` with channel messages, and
 `BusinessAgent.talk_turn` / `on_started` with a talk phase, and the random speaking
-order switch (`speaking_order_rng`, sequential turns). Run wiring lives in
-tests/test_cli_talk.py and tests/test_cli_speaking_order.py.
+order switch (`speaking_order_rng`, sequential turns), and the random first word switch
+(`draw_first_word`, the first-word line, `first_word` log rows). Run wiring lives in
+tests/test_cli_talk.py, tests/test_cli_speaking_order.py and tests/test_cli_first_word.py.
 
 Agent tests route the agent's actions to the real `SimpleMarketplaceProtocol` on a
 temporary SQLite database, as in test_seller_channel_agent.py. The LLM is a queued fake
@@ -35,7 +36,10 @@ from magentic_marketplace.marketplace.agents.business.informant import (
     UNDERCOVER_INSTRUCTION,
     PromptAddition,
 )
-from magentic_marketplace.marketplace.agents.business.models import ChannelMessageLog
+from magentic_marketplace.marketplace.agents.business.models import (
+    ChannelMessageLog,
+    FirstWordLog,
+)
 from magentic_marketplace.marketplace.agents.business.pricing import (
     REVENUE_GOAL,
     ItemPrice,
@@ -48,11 +52,13 @@ from magentic_marketplace.marketplace.agents.business.pricing import (
     set_round_prices,
 )
 from magentic_marketplace.marketplace.agents.business.talk import (
+    FIRST_WORDS,
     MINIMAL_TALK_CAPABILITY,
     TALK_CAPABILITY,
     TalkDecision,
     TalkMessage,
     TalkPhase,
+    draw_first_word,
     format_talk_prompt,
     speaking_order_rng,
 )
@@ -1568,3 +1574,285 @@ class TestSequentialTalkAgents:
         for sid in (first, third):
             [prompt] = llms[sid].prompts(TalkDecision)
             assert section_lines(prompt, TALK_MESSAGES_HEADER) == ["- (none yet)"]
+
+
+# Random first word: each talk call is told which word to start with
+
+
+FIRST_WORD_SEED = 101
+ANSWER_LINE = (
+    "Answer with a list of messages, each with the ids of the sellers it goes to "
+    "and its text. Answer with an empty list to send nothing."
+)
+FIRST_WORD_PHRASE = "Start your message with the word"
+EXPECTED_FIRST_WORDS = [
+    "Today",
+    "Quick",
+    "Hello",
+    "Greetings",
+    "Well",
+    "So",
+    "Okay",
+    "Right",
+    "Now",
+    "Here",
+    "Just",
+    "Also",
+    "Regarding",
+    "About",
+    "This",
+    "Looking",
+    "Thinking",
+    "Checking",
+    "Noting",
+    "Update",
+    "Note",
+    "Briefly",
+    "Hi",
+    "Hey",
+]
+
+
+def first_word_line(word: str) -> str:
+    """Return the spec's first-word line for `word`, without the blank line after it."""
+    return f'{FIRST_WORD_PHRASE} "{word}".'
+
+
+def first_word_logs(market: LocalMarket) -> list[FirstWordLog]:
+    """Return the captured logs whose data is a first_word entry, in logging order."""
+    entries = []
+    for log in market.logs:
+        data = log.data
+        if data is None:
+            continue
+        if not isinstance(data, dict):
+            data = data.model_dump(mode="json")
+        if data.get("type") == "first_word":
+            entries.append(FirstWordLog.model_validate(data))
+    return entries
+
+
+def test_first_words_are_the_24_listed_words_in_order():
+    """Random first word: FIRST_WORDS is exactly the spec's 24 words, in its order."""
+    assert FIRST_WORDS == EXPECTED_FIRST_WORDS
+
+
+def test_draw_first_word_is_reproducible():
+    """Random first word: the same seed, round, turn and seller always draw the same word."""
+    draws = {draw_first_word(FIRST_WORD_SEED, 2, 1, POBLANO) for _ in range(20)}
+
+    assert len(draws) == 1
+
+
+@pytest.mark.parametrize("seed", [0, 7, FIRST_WORD_SEED])
+def test_draw_first_word_uses_a_string_seeded_random_choice(seed):
+    """Random first word: the draw is Random(f"{seed}:{round}:{turn}:{seller}").choice(FIRST_WORDS)."""
+    for round_number in (2, 3, 5):
+        for turn in (1, 2, 4):
+            for seller_id in SELLER_IDS:
+                expected = random.Random(
+                    f"{seed}:{round_number}:{turn}:{seller_id}"
+                ).choice(EXPECTED_FIRST_WORDS)
+                drawn = draw_first_word(seed, round_number, turn, seller_id)
+                assert drawn == expected
+                assert drawn in EXPECTED_FIRST_WORDS
+
+
+def test_draw_first_word_varies_over_sellers_turns_and_rounds():
+    """Random first word: the word changes with the seller, the turn and the round."""
+    by_seller = {draw_first_word(FIRST_WORD_SEED, 2, 1, sid) for sid in SELLER_IDS}
+    by_turn = {draw_first_word(FIRST_WORD_SEED, 2, t, POBLANO) for t in range(1, 11)}
+    by_round = {draw_first_word(FIRST_WORD_SEED, r, 1, POBLANO) for r in range(2, 12)}
+    by_seed = {draw_first_word(s, 2, 1, POBLANO) for s in range(10)}
+
+    assert len(by_seller) > 1
+    assert len(by_turn) > 1
+    assert len(by_round) > 1
+    assert len(by_seed) > 1
+
+
+@pytest.mark.parametrize("minimal", [False, True], ids=["standard", "minimal"])
+@pytest.mark.parametrize(
+    "memory, channel_messages",
+    [
+        (None, []),
+        (round_3_memory(), [channel_message(SELLER_4, POBLANO, "hello", 3)]),
+    ],
+    ids=["no-memory", "memory-and-message"],
+)
+def test_first_word_line_sits_right_before_the_answer_line(
+    minimal, memory, channel_messages
+):
+    """Random first word: the line and a blank line are inserted right before the answer line."""
+    settings = {
+        "round_number": 3,
+        "memory": memory,
+        "channel_messages": channel_messages,
+        "minimal": minimal,
+    }
+    plain = talk_prompt(**settings)
+    assert plain.count(ANSWER_LINE) == 1
+
+    prompt = talk_prompt(first_word="Hello", **settings)
+
+    # The prompt is the plain one with exactly the line and a blank line inserted
+    assert prompt == plain.replace(
+        ANSWER_LINE, f"{first_word_line('Hello')}\n\n{ANSWER_LINE}"
+    )
+    # And the line comes right after the "Messages this round:" section
+    message_lines = section_lines(prompt, TALK_MESSAGES_HEADER)
+    section_end = f"{TALK_MESSAGES_HEADER}\n" + "\n".join(message_lines) + "\n\n"
+    assert f"{section_end}{first_word_line('Hello')}\n\n{ANSWER_LINE}" in prompt
+
+
+def test_first_word_line_keeps_a_retry_context_after_the_answer_line():
+    """Random first word: a retry's context still follows the answer line, after the first word."""
+    prompt = talk_prompt(first_word="Okay", context="CONTEXT-MARKER")
+
+    assert prompt.index(first_word_line("Okay")) < prompt.index(ANSWER_LINE)
+    assert prompt.index(ANSWER_LINE) < prompt.index("CONTEXT-MARKER")
+
+
+@pytest.mark.parametrize("minimal", [False, True], ids=["standard", "minimal"])
+@pytest.mark.parametrize("memory", [None, round_3_memory()])
+def test_talk_prompt_without_a_first_word_is_unchanged(minimal, memory):
+    """Random first word: first_word=None renders the same prompt as before, with no line."""
+    plain = talk_prompt(round_number=3, memory=memory, minimal=minimal)
+
+    assert (
+        talk_prompt(round_number=3, memory=memory, minimal=minimal, first_word=None)
+        == plain
+    )
+    assert FIRST_WORD_PHRASE not in plain
+
+
+def test_standard_talk_prompt_without_a_first_word_ends_with_the_answer_line():
+    """Random first word: off, the "Messages this round:" section is followed by the answer line."""
+    prompt = talk_prompt()
+
+    assert prompt.endswith(f"{TALK_MESSAGES_HEADER}\n- (none yet)\n\n{ANSWER_LINE}")
+
+
+@pytest.mark.parametrize("memory", [None, round_3_memory()])
+def test_pricing_prompt_never_has_the_first_word_line(memory):
+    """Random first word: the pricing prompt never tells the seller how to start."""
+    prompts = [
+        pricing_prompt(memory=memory),
+        pricing_prompt(
+            memory=memory,
+            channel_messages=[channel_message(SELLER_4, POBLANO, "hello")],
+        ),
+    ]
+
+    for prompt in prompts:
+        assert FIRST_WORD_PHRASE not in prompt
+
+
+class TestFirstWordAgents:
+    """BusinessAgent with first_word_seed: each talk call draws, logs and renders its word."""
+
+    async def test_seeded_seller_renders_the_drawn_word_and_logs_one_row(
+        self, market, llm_config
+    ):
+        """Random first word: round-2 turn-1 talk shows the drawn word and logs one first_word row."""
+        expected_word = draw_first_word(FIRST_WORD_SEED, 2, 1, POBLANO)
+        llm = FakeLLM(BUSINESSES[POBLANO])
+        poblano = make_seller(
+            POBLANO, market, llm_config, llm, first_word_seed=FIRST_WORD_SEED
+        )
+
+        await poblano.talk_turn(1)
+        await poblano.logger.flush()
+
+        [prompt] = llm.prompts(TalkDecision)
+        assert f"{first_word_line(expected_word)}\n\n{ANSWER_LINE}" in prompt
+        assert prompt.count(FIRST_WORD_PHRASE) == 1
+        assert first_word_logs(market) == [
+            FirstWordLog(seller_id=POBLANO, round=2, turn=1, word=expected_word)
+        ]
+
+    async def test_each_turn_draws_and_logs_its_own_word(self, market, llm_config):
+        """Random first word: turns 1 and 2 of round 3 each draw from their own turn number."""
+        llm = FakeLLM(BUSINESSES[SELLER_4])
+        seller_4 = make_seller(
+            SELLER_4,
+            market,
+            llm_config,
+            llm,
+            round_number=3,
+            first_word_seed=FIRST_WORD_SEED,
+        )
+
+        await seller_4.talk_turn(1)
+        await seller_4.talk_turn(2)
+        await seller_4.logger.flush()
+
+        words = [draw_first_word(FIRST_WORD_SEED, 3, t, SELLER_4) for t in (1, 2)]
+        prompts = llm.prompts(TalkDecision)
+        assert len(prompts) == 2
+        for prompt, word in zip(prompts, words, strict=True):
+            assert f"{first_word_line(word)}\n\n{ANSWER_LINE}" in prompt
+        assert first_word_logs(market) == [
+            FirstWordLog(seller_id=SELLER_4, round=3, turn=t, word=word)
+            for t, word in zip((1, 2), words, strict=True)
+        ]
+
+    async def test_seller_without_a_seed_has_no_line_and_no_row(
+        self, market, llm_config
+    ):
+        """Random first word: without first_word_seed, no line in the prompt and no first_word row."""
+        llm = FakeLLM(BUSINESSES[POBLANO])
+        poblano = make_seller(POBLANO, market, llm_config, llm)
+
+        await poblano.talk_turn(1)
+        await poblano.logger.flush()
+
+        [prompt] = llm.prompts(TalkDecision)
+        assert FIRST_WORD_PHRASE not in prompt
+        assert prompt.endswith(ANSWER_LINE)
+        assert first_word_logs(market) == []
+
+    async def test_minimal_seeded_seller_renders_the_line_in_the_minimal_prompt(
+        self, market, llm_config
+    ):
+        """Random first word: a seller with the minimal talk prompt also gets the line."""
+        expected_word = draw_first_word(FIRST_WORD_SEED, 2, 1, POBLANO)
+        llm = FakeLLM(BUSINESSES[POBLANO])
+        poblano = make_seller(
+            POBLANO,
+            market,
+            llm_config,
+            llm,
+            minimal_talk_prompt=True,
+            first_word_seed=FIRST_WORD_SEED,
+        )
+
+        await poblano.talk_turn(1)
+
+        [prompt] = llm.prompts(TalkDecision)
+        assert MINIMAL_TALK_CAPABILITY in prompt
+        assert prompt.endswith(f"{first_word_line(expected_word)}\n\n{ANSWER_LINE}")
+
+    async def test_seeded_seller_prices_without_the_line(self, market, llm_config):
+        """Random first word: on_started talks with the line, then prices without it."""
+        llm = FakeLLM(BUSINESSES[POBLANO])
+        poblano = make_seller(
+            POBLANO,
+            market,
+            llm_config,
+            llm,
+            seller_pricing=True,
+            current_prices=dict(BUSINESSES[POBLANO].menu_features),
+            talk_phase=TalkPhase([POBLANO]),
+            first_word_seed=FIRST_WORD_SEED,
+        )
+
+        await asyncio.wait_for(poblano.on_started(), timeout=PHASE_TIMEOUT)
+        await poblano.logger.flush()
+
+        [talk] = llm.prompts(TalkDecision)
+        [pricing] = llm.prompts(PriceList)
+        assert FIRST_WORD_PHRASE in talk
+        assert FIRST_WORD_PHRASE not in pricing
+        # One talk call, so one first_word row; pricing logs none
+        assert len(first_word_logs(market)) == 1
