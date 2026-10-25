@@ -49,6 +49,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         coordination: bool = False,
         undercover_instruction: str = UNDERCOVER_INSTRUCTION,
         prompt_additions: list[PromptAddition] | None = None,
+        minimal_talk_prompt: bool = False,
         llm_kwargs: dict[str, Any] | None = None,
         strategy_llm_kwargs: dict[str, Any] | None = None,
     ):
@@ -78,6 +79,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             prompt_additions: The run's prompt additions, every one of them; the talk and
                 pricing prompts keep those meant for this seller. Customer replies are
                 unchanged.
+            minimal_talk_prompt: Talk with the minimal talk prompt (no goal line,
+                no "optional" line). False keeps the standard talk prompt.
             llm_kwargs: `generate` arguments for replies to customers; None keeps
                 `llm_config` (stock).
             strategy_llm_kwargs: `generate` arguments for the talk and pricing calls;
@@ -110,6 +113,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._coordination = coordination
         self._undercover_instruction = undercover_instruction
         self._prompt_additions = prompt_additions or []
+        self._minimal_talk_prompt = minimal_talk_prompt
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
@@ -295,6 +299,7 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             coordination=self._coordination,
             undercover_instruction=self._undercover_instruction,
             additions=self._prompt_additions,
+            minimal=self._minimal_talk_prompt,
         )
         decision, _ = await self.strategy_generate_struct(prompt, TalkDecision)
 

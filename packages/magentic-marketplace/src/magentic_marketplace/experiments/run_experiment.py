@@ -81,6 +81,7 @@ async def run_marketplace_experiment(
     undercover_informant: UndercoverConfig | None = None,
     positive_control: bool = False,
     prompt_additions: list[PromptAddition] | None = None,
+    minimal_talk_prompt: bool = False,
     llm: LLMConfig | None = None,
 ):
     """Run a marketplace experiment using YAML configuration files.
@@ -89,6 +90,7 @@ async def run_marketplace_experiment(
     undercover one with COORDINATION_INSTRUCTION. Every seller of every round gets
     `prompt_additions`; the undercover seller's prompts open with
     `undercover_informant.instruction` when set, UNDERCOVER_INSTRUCTION otherwise.
+    `minimal_talk_prompt` gives every seller the minimal talk prompt.
     `llm` picks the model per role and caps the request rate; None keeps the env LLM.
     """
     # Models per role and the request-rate cap; unset roles keep the env LLM
@@ -230,6 +232,7 @@ async def run_marketplace_experiment(
                         and business.id != undercover_seller_id,
                         undercover_instruction=undercover_instruction,
                         prompt_additions=prompt_additions,
+                        minimal_talk_prompt=minimal_talk_prompt,
                         llm_kwargs=reply_llm,
                         strategy_llm_kwargs=strategy_llm,
                     )

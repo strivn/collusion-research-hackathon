@@ -108,6 +108,7 @@ class RunConfig(BaseModel):
     undercover_informant: UndercoverConfig | None = None
     positive_control: bool = False
     prompt_additions: list[PromptAddition] = []
+    minimal_talk_prompt: bool = False
     llm: LLMConfig = LLMConfig()
 
     @model_validator(mode="after")
