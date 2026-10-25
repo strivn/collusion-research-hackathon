@@ -57,3 +57,12 @@ class ChannelMessageLog(BaseModel):
     round: int
     turn: int
     text: str
+
+
+class SpeakingOrderLog(BaseModel):
+    """Log entry for the order in which sellers spoke in one talk turn."""
+
+    type: Literal["speaking_order"] = "speaking_order"
+    round: int
+    turn: int
+    seller_ids: list[str]

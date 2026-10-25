@@ -20,6 +20,7 @@ from magentic_marketplace.experiments.round_scores import compute_round_tables
 from magentic_marketplace.experiments.run_config import (
     BudgetConfig,
     LLMConfig,
+    SpeakingOrderConfig,
     UndercoverConfig,
     role_kwargs,
 )
@@ -33,8 +34,12 @@ from magentic_marketplace.marketplace.agents.business.informant import (
     UNDERCOVER_INSTRUCTION,
     PromptAddition,
 )
+from magentic_marketplace.marketplace.agents.business.models import SpeakingOrderLog
 from magentic_marketplace.marketplace.agents.business.pricing import SellerMemory
-from magentic_marketplace.marketplace.agents.business.talk import TalkPhase
+from magentic_marketplace.marketplace.agents.business.talk import (
+    TalkPhase,
+    speaking_order_rng,
+)
 from magentic_marketplace.marketplace.agents.round_gate import RoundGate
 from magentic_marketplace.marketplace.llm.base import set_requests_per_minute
 from magentic_marketplace.marketplace.protocol.protocol import SimpleMarketplaceProtocol
@@ -82,6 +87,7 @@ async def run_marketplace_experiment(
     positive_control: bool = False,
     prompt_additions: list[PromptAddition] | None = None,
     minimal_talk_prompt: bool = False,
+    random_speaking_order: SpeakingOrderConfig | None = None,
     llm: LLMConfig | None = None,
 ):
     """Run a marketplace experiment using YAML configuration files.
@@ -91,6 +97,8 @@ async def run_marketplace_experiment(
     `prompt_additions`; the undercover seller's prompts open with
     `undercover_informant.instruction` when set, UNDERCOVER_INSTRUCTION otherwise.
     `minimal_talk_prompt` gives every seller the minimal talk prompt.
+    `random_speaking_order` makes the sellers of each talk turn speak one at a time in an
+    order drawn from its seed and the round, logged as `speaking_order` rows.
     `llm` picks the model per role and caps the request rate; None keeps the env LLM.
     """
     # Models per role and the request-rate cap; unset roles keep the env LLM
@@ -208,7 +216,14 @@ async def run_marketplace_experiment(
             for round_number in range(1, rounds + 1):
                 # With the channel on, sellers talk before pricing from round 2 on
                 talk_phase = (
-                    TalkPhase([business.id for business in businesses])
+                    TalkPhase(
+                        [business.id for business in businesses],
+                        speaking_order_rng=speaking_order_rng(
+                            random_speaking_order.seed, round_number
+                        )
+                        if random_speaking_order is not None
+                        else None,
+                    )
                     if seller_channel and round_number >= 2
                     else None
                 )
@@ -263,6 +278,18 @@ async def run_marketplace_experiment(
                 except KeyboardInterrupt:
                     logger.warning("Simulation interrupted by user")
                     break
+
+                # Record who spoke in which order in each talk turn of the round
+                if talk_phase is not None and talk_phase.speaking_orders:
+                    for turn, seller_ids in enumerate(talk_phase.speaking_orders, 1):
+                        logger.info(
+                            f"Speaking order for round {round_number} turn {turn}",
+                            data=SpeakingOrderLog(
+                                round=round_number, turn=turn, seller_ids=seller_ids
+                            ),
+                        )
+                    # The rows are sent in background tasks; the last round's must land before exit
+                    await logger.flush()
 
                 # Carry each seller's prices into the next round; pricing off has none
                 if seller_pricing:

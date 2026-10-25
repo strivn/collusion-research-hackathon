@@ -175,6 +175,9 @@ def run_experiment_command(args):
             minimal_talk_prompt=config.minimal_talk_prompt
             if config is not None
             else False,
+            random_speaking_order=config.random_speaking_order
+            if config is not None
+            else None,
             llm=config.llm if config is not None else None,
         )
     )

@@ -3,8 +3,9 @@
 Covers the Rules from "With the channel off" onward at the unit and agent level:
 `TalkPhase` turn logic with fake `talk_turn` callables, `format_talk_prompt`,
 `format_pricing_prompt` / `set_round_prices` with channel messages, and
-`BusinessAgent.talk_turn` / `on_started` with a talk phase. Run wiring lives in
-tests/test_cli_talk.py.
+`BusinessAgent.talk_turn` / `on_started` with a talk phase, and the random speaking
+order switch (`speaking_order_rng`, sequential turns). Run wiring lives in
+tests/test_cli_talk.py and tests/test_cli_speaking_order.py.
 
 Agent tests route the agent's actions to the real `SimpleMarketplaceProtocol` on a
 temporary SQLite database, as in test_seller_channel_agent.py. The LLM is a queued fake
@@ -14,6 +15,7 @@ is `business_0007`. The scenarios' "Empanadas" is business_0001's
 """
 
 import asyncio
+import random
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -52,6 +54,7 @@ from magentic_marketplace.marketplace.agents.business.talk import (
     TalkMessage,
     TalkPhase,
     format_talk_prompt,
+    speaking_order_rng,
 )
 from magentic_marketplace.marketplace.llm.clients.openai import OpenAIConfig
 from magentic_marketplace.marketplace.protocol.protocol import SimpleMarketplaceProtocol
@@ -221,9 +224,23 @@ Policy = Callable[[str, int], list[str]]
 class PhaseRecorder:
     """Runs a TalkPhase with fake talk_turn callables and records every call."""
 
-    def __init__(self, seller_ids: list[str], policy: Policy, delay: float = 0.0):
-        """Set up a phase for `seller_ids`; `policy(seller, turn)` gives the delivered ids."""
-        self.phase = TalkPhase(seller_ids)
+    def __init__(
+        self,
+        seller_ids: list[str],
+        policy: Policy,
+        delay: float = 0.0,
+        rng: random.Random | None = None,
+    ):
+        """Set up a phase for `seller_ids`; `policy(seller, turn)` gives the delivered ids.
+
+        With `rng`, the phase speaks in a random order drawn from it; without, it is the
+        default concurrent phase.
+        """
+        self.phase = (
+            TalkPhase(seller_ids)
+            if rng is None
+            else TalkPhase(seller_ids, speaking_order_rng=rng)
+        )
         self.seller_ids = seller_ids
         self.policy = policy
         self.delay = delay
@@ -263,6 +280,10 @@ class PhaseRecorder:
     def turns(self) -> list[int]:
         """Return the turns that ran, ascending."""
         return sorted({t for t, _ in self.calls})
+
+    def call_order_in(self, turn: int) -> list[str]:
+        """Return the sellers asked in `turn`, in the order their calls started."""
+        return [sid for t, sid in self.calls if t == turn]
 
 
 def scripted(script: dict[tuple[str, int], list[str]]) -> Policy:
@@ -1250,3 +1271,300 @@ class TestOnStartedWithTalk:
         [prompt] = llm.prompts(PriceList)
         assert PRICING_MESSAGES_HEADER not in prompt
         assert "message" not in prompt.lower()
+
+
+# Random speaking order: one seller at a time, in a seeded random order
+
+
+ORDER_SEED = 101
+ORDER_ROUND = 2
+
+
+def shuffled(seller_ids: list[str], rng: random.Random) -> list[str]:
+    """Return `seller_ids` sorted, then shuffled by `rng`: the spec's speaking order."""
+    order = sorted(seller_ids)
+    rng.shuffle(order)
+    return order
+
+
+def expected_orders(
+    seed: int, round_number: int, asked_per_turn: list[list[str]]
+) -> list[list[str]]:
+    """Return each turn's speaking order, drawn in turn order from one fresh rng."""
+    rng = random.Random(f"{seed}:{round_number}")
+    return [shuffled(asked, rng) for asked in asked_per_turn]
+
+
+class TestSpeakingOrderRng:
+    """speaking_order_rng(seed, round) is random.Random seeded with "seed:round"."""
+
+    def test_rng_is_seeded_with_seed_and_round(self):
+        """Random speaking order: the rng's state equals random.Random("101:2")'s."""
+        rng = speaking_order_rng(ORDER_SEED, ORDER_ROUND)
+
+        assert isinstance(rng, random.Random)
+        assert rng.getstate() == random.Random("101:2").getstate()
+
+    def test_rng_differs_by_round_and_by_seed(self):
+        """Random speaking order: another round or another seed gives another rng."""
+        state = speaking_order_rng(ORDER_SEED, ORDER_ROUND).getstate()
+
+        assert speaking_order_rng(ORDER_SEED, 3).getstate() != state
+        assert speaking_order_rng(102, ORDER_ROUND).getstate() != state
+
+
+async def test_default_phase_stays_concurrent_and_records_no_order():
+    """Random speaking order: without an rng every turn-1 call is in flight at once."""
+    recorder = PhaseRecorder(SELLER_IDS, scripted({}), delay=0.01)
+
+    await recorder.run()
+
+    # All 9 calls start before the first one ends
+    assert [kind for kind, _, _ in recorder.events[:9]] == ["start"] * 9
+    assert recorder.phase.speaking_orders == []
+
+
+# Three turns: turn 1 asks all 9; turn 2 asks business_0002 and business_0004; turn 3
+# asks business_0001 and business_0007, who send nothing
+THREE_TURN_SCRIPT = {
+    (POBLANO, 1): [SELLER_4],
+    (SELLER_7, 1): ["business_0002"],
+    (SELLER_4, 2): [POBLANO, SELLER_7],
+}
+THREE_TURN_ASKED = [SELLER_IDS, ["business_0002", SELLER_4], [POBLANO, SELLER_7]]
+
+
+async def test_sequential_phase_runs_one_talk_turn_at_a_time():
+    """Random speaking order: with an rng each call ends before the next one starts."""
+    recorder = PhaseRecorder(
+        SELLER_IDS,
+        scripted(THREE_TURN_SCRIPT),
+        delay=0.005,
+        rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND),
+    )
+
+    await recorder.run()
+
+    # Events alternate start, end of the same seller and turn
+    assert len(recorder.events) == 2 * len(recorder.calls)
+    starts = recorder.events[0::2]
+    ends = recorder.events[1::2]
+    assert all(kind == "start" for kind, _, _ in starts)
+    assert [(t, sid) for _, t, sid in starts] == [(t, sid) for _, t, sid in ends]
+
+
+async def test_each_turns_call_order_is_its_recorded_speaking_order():
+    """Random speaking order: speaking_orders[turn - 1] is the order the calls ran in."""
+    recorder = PhaseRecorder(
+        SELLER_IDS,
+        scripted(THREE_TURN_SCRIPT),
+        rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND),
+    )
+
+    await recorder.run()
+
+    orders = recorder.phase.speaking_orders
+    assert recorder.turns() == [1, 2, 3]
+    assert len(orders) == 3
+    for turn in (1, 2, 3):
+        assert recorder.call_order_in(turn) == orders[turn - 1]
+    # Turn 1's order is a permutation of every seller
+    assert sorted(orders[0]) == SELLER_IDS
+    assert len(orders[0]) == len(SELLER_IDS)
+
+
+async def test_speaking_orders_are_sorted_ids_shuffled_by_the_round_rng():
+    """Random speaking order: each turn shuffles its sorted asked sellers with the same rng."""
+    recorder = PhaseRecorder(
+        SELLER_IDS,
+        scripted(THREE_TURN_SCRIPT),
+        rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND),
+    )
+
+    await recorder.run()
+
+    assert recorder.phase.speaking_orders == expected_orders(
+        ORDER_SEED, ORDER_ROUND, THREE_TURN_ASKED
+    )
+
+
+async def test_speaking_order_does_not_depend_on_the_order_sellers_are_given():
+    """Random speaking order: the asked sellers are sorted before the shuffle."""
+    recorder = PhaseRecorder(
+        list(reversed(SELLER_IDS)),
+        scripted({}),
+        rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND),
+    )
+
+    await recorder.run()
+
+    assert recorder.phase.speaking_orders == expected_orders(
+        ORDER_SEED, ORDER_ROUND, [SELLER_IDS]
+    )
+
+
+async def test_same_seed_and_round_give_the_same_order():
+    """Random speaking order: two phases with speaking_order_rng(101, 2) speak alike."""
+    orders = []
+    for _ in range(2):
+        recorder = PhaseRecorder(
+            SELLER_IDS,
+            scripted(THREE_TURN_SCRIPT),
+            rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND),
+        )
+        await recorder.run()
+        orders.append(recorder.phase.speaking_orders)
+
+    assert orders[0] == orders[1]
+    assert orders[0][0] == shuffled(SELLER_IDS, random.Random("101:2"))
+
+
+async def test_different_rounds_give_different_turn_1_orders():
+    """Random speaking order: rounds 2 to 5 of seed 101 do not all share one turn-1 order."""
+    turn_1_orders = []
+    for round_number in (2, 3, 4, 5):
+        recorder = PhaseRecorder(
+            SELLER_IDS,
+            scripted({}),
+            rng=speaking_order_rng(ORDER_SEED, round_number),
+        )
+        await recorder.run()
+        [turn_1] = recorder.phase.speaking_orders
+        assert turn_1 == expected_orders(ORDER_SEED, round_number, [SELLER_IDS])[0]
+        turn_1_orders.append(tuple(turn_1))
+
+    assert len(set(turn_1_orders)) > 1
+
+
+async def test_sequential_later_turns_ask_only_sellers_with_new_messages():
+    """Random speaking order: turn rules unchanged (turn 2 asks only the recipient)."""
+    recorder = PhaseRecorder(
+        SELLER_IDS,
+        scripted({(POBLANO, 1): [SELLER_4]}),
+        rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND),
+    )
+
+    await recorder.run()
+
+    assert recorder.asked_in(1) == SELLER_IDS
+    assert recorder.asked_in(2) == [SELLER_4]
+    assert recorder.turns() == [1, 2]
+    assert recorder.phase.speaking_orders[1] == [SELLER_4]
+
+
+async def test_sequential_quiet_turn_1_ends_the_phase():
+    """Random speaking order: turn rules unchanged (a quiet turn 1 ends the phase)."""
+    recorder = PhaseRecorder(
+        SELLER_IDS, scripted({}), rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND)
+    )
+
+    await recorder.run()
+
+    assert recorder.turns() == [1]
+    assert len(recorder.calls) == len(SELLER_IDS)
+    assert len(recorder.phase.speaking_orders) == 1
+
+
+async def test_sequential_recipient_without_messages_left_is_not_asked():
+    """Random speaking order: turn rules unchanged (a used-up allowance is not asked)."""
+    five = [
+        "business_0002",
+        "business_0003",
+        "business_0005",
+        "business_0006",
+        SELLER_7,
+    ]
+    recorder = PhaseRecorder(
+        SELLER_IDS,
+        scripted({(SELLER_4, 1): five, (POBLANO, 1): [SELLER_4]}),
+        rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND),
+    )
+
+    await recorder.run()
+
+    assert recorder.asked_in(2) == sorted(five)
+    assert recorder.turns() == [1, 2]
+    assert sorted(recorder.phase.speaking_orders[1]) == sorted(five)
+
+
+async def test_sequential_phase_ends_when_every_allowance_is_used():
+    """Random speaking order: turn rules unchanged (two sellers trade 5 messages each)."""
+    pair = [POBLANO, SELLER_4]
+    recorder = PhaseRecorder(
+        pair,
+        lambda seller_id, turn: [SELLER_4 if seller_id == POBLANO else POBLANO],
+        rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND),
+    )
+
+    await recorder.run()
+
+    assert recorder.turns() == [1, 2, 3, 4, 5]
+    assert len(recorder.phase.speaking_orders) == 5
+    for turn in range(1, 6):
+        assert recorder.asked_in(turn) == pair
+        assert sorted(recorder.phase.speaking_orders[turn - 1]) == pair
+
+
+async def test_sequential_exception_delivers_nothing_and_the_turn_goes_on():
+    """Random speaking order: turn rules unchanged (a failing talk_turn delivers nothing)."""
+
+    def policy(seller_id: str, turn: int) -> list[str]:
+        if seller_id == "business_0002":
+            raise RuntimeError("LLM failed")
+        return [SELLER_4] if (seller_id, turn) == (POBLANO, 1) else []
+
+    recorder = PhaseRecorder(
+        SELLER_IDS, policy, rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND)
+    )
+
+    await recorder.run()
+
+    # Every seller after the failing one still speaks in turn 1
+    assert recorder.call_order_in(1) == recorder.phase.speaking_orders[0]
+    assert recorder.asked_in(1) == SELLER_IDS
+    assert recorder.asked_in(2) == [SELLER_4]
+    assert recorder.turns() == [1, 2]
+
+
+class TestSequentialTalkAgents:
+    """Real sellers sharing one sequential TalkPhase read earlier speakers' messages."""
+
+    async def test_later_speaker_sees_earlier_message_in_the_same_turn(
+        self, market, llm_config
+    ):
+        """Random speaking order: the second speaker's turn-1 prompt shows the first's message."""
+        # Given three sellers whose round-2 order is drawn from speaking_order_rng(101, 2)
+        trio = [POBLANO, SELLER_4, SELLER_7]
+        first, second, third = shuffled(trio, random.Random("101:2"))
+        phase = TalkPhase(
+            trio, speaking_order_rng=speaking_order_rng(ORDER_SEED, ORDER_ROUND)
+        )
+        # And the first speaker sends "hello" to the second in turn 1
+        llms = {sid: FakeLLM(BUSINESSES[sid]) for sid in trio}
+        llms[first].talk_answers.append(
+            TalkDecision(
+                messages=[TalkMessage(to_seller_ids=[second], content="hello")]
+            )
+        )
+        sellers = [
+            make_seller(sid, market, llm_config, llms[sid], talk_phase=phase)
+            for sid in trio
+        ]
+
+        # When the round's talk phase runs
+        await asyncio.wait_for(
+            asyncio.gather(*(seller.on_started() for seller in sellers)),
+            timeout=PHASE_TIMEOUT,
+        )
+
+        # Then turn 1 ran first, second, third; turn 2 asked only the second
+        assert phase.speaking_orders == [[first, second, third], [second]]
+        # And the second speaker's turn-1 prompt already shows the first's message
+        second_turn_1 = llms[second].prompts(TalkDecision)[0]
+        assert section_lines(second_turn_1, TALK_MESSAGES_HEADER) == [
+            f"- from {BUSINESSES[first].name} ({first}): hello"
+        ]
+        # And the first and third speakers saw no message in turn 1
+        for sid in (first, third):
+            [prompt] = llms[sid].prompts(TalkDecision)
+            assert section_lines(prompt, TALK_MESSAGES_HEADER) == ["- (none yet)"]

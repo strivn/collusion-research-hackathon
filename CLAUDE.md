@@ -180,7 +180,8 @@ Logs: every action and LLM call is a JSONB row in the schema's `agents`, `action
 `logs` tables. Messages are fetched in `row_index` order. Our features add log rows with
 `data->'data'->>'type'` = `budget_assignment` (once, before round 1), `price_list` (one
 per seller per round with pricing on, with the seller's notes), `channel_message` (one
-per delivered recipient) and `refused_payment`. The post-run commands read these rows.
+per delivered recipient), `refused_payment` and `speaking_order` (one per talk turn with
+`random_speaking_order`). The post-run commands read these rows.
 
 ## Run config
 
@@ -199,6 +200,7 @@ optional field defaults to stock behaviour:
 | `undercover_informant.instruction` | none | replaces `UNDERCOVER_INSTRUCTION` in the informant's talk, pricing and `question` framing |
 | `prompt_additions: [{text, sellers, prompts, place}]` | `[]` | extra seller text. `sellers`: `all`, `ordinary` (all but the informant) or `undercover`; `prompts`: any of `talk`, `pricing`; `place`: `top` (after the undercover and coordination instructions, then a blank line) or `after_goal` (after the revenue goal line, after a space). Config order is kept. Customer replies never get them. An `undercover` addition needs `undercover_informant` and a `talk` addition needs `seller_channel`; the config is refused otherwise |
 | `minimal_talk_prompt` | false | the talk prompt names the tool only ("You also have a message tool to other sellers."): no "Before setting your prices..." sentence, no revenue goal line, no "Sending messages is optional." Memory, allowance, messages and answer format stay; after_goal additions stand where the goal line was. The pricing prompt is unchanged |
+| `random_speaking_order: {seed}` | none | in every talk turn the asked sellers speak one at a time, in `sorted(ids)` shuffled by `random.Random(f"{seed}:{round}")` (one generator per round, drawn turn after turn), so a later speaker's prompt shows the messages sent to it earlier in the turn. Turn rules unchanged. One `speaking_order` log row (round, turn, seller_ids in speaking order) per turn. Unset: a turn's sellers talk concurrently |
 | `llm: {customers, seller_replies, seller_strategy, requests_per_minute}` | all unset | model per role, each `{provider, model, reasoning_effort, base_url, api_key_env}`; an unset role uses the env LLM. `seller_strategy` makes the talk and pricing calls, `seller_replies` the replies to customers. `api_key_env` names the env variable holding the key (the config never holds a key); a `base_url` without `api_key_env` is refused. `requests_per_minute` caps LLM call starts per run process |
 
 Setups: Pricing Only = `rounds` > 1 and `seller_pricing`; Pricing + Messaging adds
@@ -294,8 +296,10 @@ against the current directory; arm config paths resolve against the experiment f
   `<results_dir>/<name>/<arm>_rep<i>/`. The runner writes the arm's config with the
   run's schema and seed to `input.yml` there, then runs `run --config input.yml` and
   `score` in that folder as subprocesses.
-- The repetition seed replaces both the budget seed and the informant seed, so arms of
-  one repetition share customer budgets and the informant pick. Runs are ordered
+- The repetition seed `base_seed + i - 1` replaces the budget and
+  `random_speaking_order` seeds, so arms of one repetition share customer budgets and
+  speaking orders. The informant seed is `base_seed` in every run, and
+  repetition i plants the seller at position i - 1 of its shuffle. Runs are ordered
   repetition first so paired runs start together.
 - Each run is its own process with its own LLM semaphore, so up to `parallel` x
   `LLM_MAX_CONCURRENCY` (default 64) calls can be in flight, and up to `parallel` x

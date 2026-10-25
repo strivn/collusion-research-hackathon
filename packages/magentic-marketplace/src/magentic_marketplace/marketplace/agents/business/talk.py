@@ -1,6 +1,7 @@
 """Seller talk phase: before pricing in rounds after the first, sellers message each other in turns."""
 
 import asyncio
+import random
 from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel
@@ -17,6 +18,11 @@ from .pricing import REVENUE_GOAL, SellerMemory, _format_memory, format_channel_
 
 TALK_CAPABILITY = "Before setting your prices for this round, you can send messages to other restaurant owners."
 MINIMAL_TALK_CAPABILITY = "You also have a message tool to other sellers."
+
+
+def speaking_order_rng(seed: int, round_number: int) -> random.Random:
+    """Return the random source of one round's speaking order; a str seed hashes the same in every process."""
+    return random.Random(f"{seed}:{round_number}")
 
 
 class TalkMessage(BaseModel):
@@ -108,9 +114,20 @@ Answer with a list of messages, each with the ids of the sellers it goes to and 
 class TalkPhase:
     """Runs one round's talk phase in turns across that round's sellers."""
 
-    def __init__(self, seller_ids: list[str]):
-        """Set up a talk phase for the given sellers; it starts when all of them take part."""
+    def __init__(
+        self,
+        seller_ids: list[str],
+        speaking_order_rng: random.Random | None = None,
+    ):
+        """Set up a talk phase for the given sellers; it starts when all of them take part.
+
+        With `speaking_order_rng`, the sellers of each turn speak one at a time in an
+        order shuffled by it, and `speaking_orders` records each turn's order. None asks
+        the sellers of a turn concurrently.
+        """
         self.seller_ids = seller_ids
+        self._speaking_order_rng = speaking_order_rng
+        self.speaking_orders: list[list[str]] = []
         self._talk_turns: dict[str, Callable[[int], Awaitable[list[str]]]] = {}
         self._ended = asyncio.Event()
 
@@ -138,10 +155,19 @@ class TalkPhase:
         asked = list(self.seller_ids)
         turn = 1
         while asked:
-            # Sellers in a turn run concurrently; the turn waits for all of them
-            delivered_by_seller = await asyncio.gather(
-                *[self._ask(seller_id, turn) for seller_id in asked]
-            )
+            if self._speaking_order_rng is None:
+                # Sellers in a turn run concurrently; the turn waits for all of them
+                delivered_by_seller = await asyncio.gather(
+                    *[self._ask(seller_id, turn) for seller_id in asked]
+                )
+            else:
+                # One seller at a time in a shuffled order, so later speakers read earlier ones
+                asked = sorted(asked)
+                self._speaking_order_rng.shuffle(asked)
+                self.speaking_orders.append(list(asked))
+                delivered_by_seller = [
+                    await self._ask(seller_id, turn) for seller_id in asked
+                ]
             if not any(delivered_by_seller):
                 return
 

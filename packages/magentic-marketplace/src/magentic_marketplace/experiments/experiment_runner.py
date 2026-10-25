@@ -107,6 +107,9 @@ async def _execute_run(
     if run_config.undercover_informant is not None:
         run_config.undercover_informant.seed = spec.informant_seed
         run_config.undercover_informant.position = spec.informant_position
+    # The speaking order follows the repetition seed, as budgets do
+    if run_config.random_speaking_order is not None:
+        run_config.random_speaking_order.seed = spec.budget_seed
     run_config.data = str(Path(run_config.data).resolve())
     (spec.folder / "input.yml").write_text(
         yaml.safe_dump(run_config.model_dump(), sort_keys=False)

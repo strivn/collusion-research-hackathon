@@ -35,6 +35,14 @@ class UndercoverConfig(BaseModel):
     instruction: str | None = None
 
 
+class SpeakingOrderConfig(BaseModel):
+    """Sellers of each talk turn speak one at a time, in an order drawn from `seed` and the round."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    seed: int
+
+
 class ModelConfig(BaseModel):
     """The LLM behind one role. The API key stays in the environment; `api_key_env` names it."""
 
@@ -111,6 +119,7 @@ class RunConfig(BaseModel):
     positive_control: bool = False
     prompt_additions: list[PromptAddition] = []
     minimal_talk_prompt: bool = False
+    random_speaking_order: SpeakingOrderConfig | None = None
     llm: LLMConfig = LLMConfig()
 
     @model_validator(mode="after")

@@ -658,6 +658,41 @@ async def test_budget_seed_per_repetition_is_unchanged(workspace, monkeypatch):
         assert input_of(workspace, f"S2_rep{i}").get("undercover_informant") is None
 
 
+# Random speaking order: each repetition's order seed is its repetition seed
+
+
+async def test_speaking_order_seed_is_the_repetition_seed(workspace, monkeypatch):
+    """Random speaking order: repetitions 1, 2 and 3 get order seeds 7, 8 and 9."""
+    # Given a Messaging arm with random_speaking_order seed 999, base seed 7
+    write_yaml(
+        workspace / "configs" / "ordered.yml",
+        arm_config(
+            str(MEXICAN_3_9),
+            seed=333,
+            rounds=2,
+            seller_pricing=True,
+            seller_channel=True,
+            random_speaking_order={"seed": 999},
+        ),
+    )
+    FakeMarketplace().install(monkeypatch)
+    config = make_config(arms={"S2": "s2.yml", "Ordered": "ordered.yml"}, base_seed=7)
+
+    # When the experiment runs
+    await run_in(workspace, config)
+
+    # Then each repetition's input.yml carries its repetition seed, like the budget
+    for i, seed in zip((1, 2, 3), (7, 8, 9), strict=True):
+        ordered = input_of(workspace, f"Ordered_rep{i}")
+        assert ordered["random_speaking_order"] == {"seed": seed}
+        assert ordered["budget"]["seed"] == seed
+    # And the arm without it stays without it
+    for i in (1, 2, 3):
+        plain = input_of(workspace, f"S2_rep{i}")
+        assert "random_speaking_order" in plain
+        assert plain["random_speaking_order"] is None
+
+
 # Rule: Runs execute in parallel up to a cap
 
 
