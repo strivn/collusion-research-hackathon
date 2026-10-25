@@ -353,6 +353,9 @@ to a schema that does not exist.
 - OpenAI client: `reasoning_effort` `minimal` is sent as is to gpt-5 models (gpt-5-mini:
   0 reasoning tokens) and turned into `low` only for o-models. Before #46 every reasoning
   model got `low`, so earlier GPT-5 runs reasoned.
+  gpt-6 models (GPT-6 Luna) take the reasoning branch too (`max_completion_tokens`, no
+  `temperature`); Luna accepts `reasoning_effort: none` and rejects `minimal`, which the
+  client turns into `low` for any model not starting with gpt-5. Set `none` explicitly.
 - OpenRouter works through the OpenAI client (`base_url: https://openrouter.ai/api/v1`,
   `api_key_env: OPENROUTER_API_KEY`). Our key is on the free tier: 50 requests per day, and
   the free Gemma 4 endpoints returned 429 while `inkling:free` returned 403 (2026-10-24), so free

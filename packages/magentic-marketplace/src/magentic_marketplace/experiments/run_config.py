@@ -42,7 +42,9 @@ class ModelConfig(BaseModel):
 
     provider: Literal["openai", "gemini", "anthropic"]
     model: str
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] | int | None = None
+    reasoning_effort: (
+        Literal["none", "minimal", "low", "medium", "high"] | int | None
+    ) = None
     base_url: str | None = None
     api_key_env: str | None = None
 
