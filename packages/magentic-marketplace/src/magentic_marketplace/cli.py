@@ -172,6 +172,13 @@ def run_experiment_command(args):
             else None,
             positive_control=config.positive_control if config is not None else False,
             prompt_additions=config.prompt_additions if config is not None else None,
+            minimal_talk_prompt=config.minimal_talk_prompt
+            if config is not None
+            else False,
+            random_speaking_order=config.random_speaking_order
+            if config is not None
+            else None,
+            random_first_word=config.random_first_word if config is not None else None,
             llm=config.llm if config is not None else None,
         )
     )

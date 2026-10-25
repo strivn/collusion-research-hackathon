@@ -22,10 +22,10 @@ from ..base import BaseSimpleMarketplaceAgent, TResponseFormat
 from ..proposal_storage import OrderProposalStorage
 from ..round_gate import RoundGate
 from .informant import UNDERCOVER_INSTRUCTION, PromptAddition
-from .models import BusinessSummary, ChannelMessageLog
+from .models import BusinessSummary, ChannelMessageLog, FirstWordLog
 from .pricing import PriceListLog, SellerMemory, set_round_prices
 from .responses import ResponseHandler
-from .talk import TalkDecision, TalkPhase, format_talk_prompt
+from .talk import TalkDecision, TalkPhase, draw_first_word, format_talk_prompt
 
 
 class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
@@ -49,6 +49,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         coordination: bool = False,
         undercover_instruction: str = UNDERCOVER_INSTRUCTION,
         prompt_additions: list[PromptAddition] | None = None,
+        minimal_talk_prompt: bool = False,
+        first_word_seed: int | None = None,
         llm_kwargs: dict[str, Any] | None = None,
         strategy_llm_kwargs: dict[str, Any] | None = None,
     ):
@@ -78,6 +80,10 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             prompt_additions: The run's prompt additions, every one of them; the talk and
                 pricing prompts keep those meant for this seller. Customer replies are
                 unchanged.
+            minimal_talk_prompt: Talk with the minimal talk prompt (no goal line,
+                no "optional" line). False keeps the standard talk prompt.
+            first_word_seed: Tell each talk call to start its message with a word drawn
+                from this seed, the round, the turn and the seller id. None adds no line.
             llm_kwargs: `generate` arguments for replies to customers; None keeps
                 `llm_config` (stock).
             strategy_llm_kwargs: `generate` arguments for the talk and pricing calls;
@@ -110,6 +116,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         self._coordination = coordination
         self._undercover_instruction = undercover_instruction
         self._prompt_additions = prompt_additions or []
+        self._minimal_talk_prompt = minimal_talk_prompt
+        self._first_word_seed = first_word_seed
         # Notes the seller wrote in this round's pricing step, for next round
         self.round_notes: str = ""
         # This round's price per menu item; None while pricing is off (stock)
@@ -284,6 +292,21 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
         """Make this seller's talk call for `turn`, send what it decides, return the ids delivered to."""
         # Ask the seller what to send, given this round's messages so far
         channel = await self.fetch_channel_messages()
+        # Draw and log the word this call is told to start with, when the switch is on
+        first_word = None
+        if self._first_word_seed is not None:
+            first_word = draw_first_word(
+                self._first_word_seed, self.round_number, turn, self.id
+            )
+            self.logger.info(
+                f"First word for round {self.round_number} turn {turn}",
+                data=FirstWordLog(
+                    seller_id=self.id,
+                    round=self.round_number,
+                    turn=turn,
+                    word=first_word,
+                ),
+            )
         prompt = format_talk_prompt(
             self.business,
             self._other_sellers,
@@ -295,6 +318,8 @@ class BusinessAgent(BaseSimpleMarketplaceAgent[BusinessAgentProfile]):
             coordination=self._coordination,
             undercover_instruction=self._undercover_instruction,
             additions=self._prompt_additions,
+            minimal=self._minimal_talk_prompt,
+            first_word=first_word,
         )
         decision, _ = await self.strategy_generate_struct(prompt, TalkDecision)
 

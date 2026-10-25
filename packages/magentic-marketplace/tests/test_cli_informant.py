@@ -199,6 +199,10 @@ class RecordingLogger:
         """Record an exception call."""
         self.entries.append(("exception", message, data))
 
+    async def flush(self):
+        """Record a flush; MarketplaceLogger waits for its pending log tasks here."""
+        self.entries.append(("flush", None, None))
+
 
 class TalkingBusinessAgent(BusinessAgent):
     """A real BusinessAgent with a scripted LLM, a recording logger and an in-memory channel.

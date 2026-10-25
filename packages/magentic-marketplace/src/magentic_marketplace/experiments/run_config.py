@@ -35,6 +35,22 @@ class UndercoverConfig(BaseModel):
     instruction: str | None = None
 
 
+class SpeakingOrderConfig(BaseModel):
+    """Sellers of each talk turn speak one at a time, in an order drawn from `seed` and the round."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    seed: int
+
+
+class FirstWordConfig(BaseModel):
+    """Each talk call is told to start with a word drawn from `seed`, round, turn and seller."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    seed: int
+
+
 class ModelConfig(BaseModel):
     """The LLM behind one role. The API key stays in the environment; `api_key_env` names it."""
 
@@ -42,7 +58,9 @@ class ModelConfig(BaseModel):
 
     provider: Literal["openai", "gemini", "anthropic"]
     model: str
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] | int | None = None
+    reasoning_effort: (
+        Literal["none", "minimal", "low", "medium", "high"] | int | None
+    ) = None
     base_url: str | None = None
     api_key_env: str | None = None
 
@@ -108,6 +126,9 @@ class RunConfig(BaseModel):
     undercover_informant: UndercoverConfig | None = None
     positive_control: bool = False
     prompt_additions: list[PromptAddition] = []
+    minimal_talk_prompt: bool = False
+    random_speaking_order: SpeakingOrderConfig | None = None
+    random_first_word: FirstWordConfig | None = None
     llm: LLMConfig = LLMConfig()
 
     @model_validator(mode="after")

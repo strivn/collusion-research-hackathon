@@ -180,7 +180,9 @@ Logs: every action and LLM call is a JSONB row in the schema's `agents`, `action
 `logs` tables. Messages are fetched in `row_index` order. Our features add log rows with
 `data->'data'->>'type'` = `budget_assignment` (once, before round 1), `price_list` (one
 per seller per round with pricing on, with the seller's notes), `channel_message` (one
-per delivered recipient) and `refused_payment`. The post-run commands read these rows.
+per delivered recipient), `refused_payment`, `speaking_order` (one per talk turn with
+`random_speaking_order`) and `first_word` (one per talk call with `random_first_word`).
+The post-run commands read these rows.
 
 ## Run config
 
@@ -198,6 +200,9 @@ optional field defaults to stock behaviour:
 | `undercover_informant: {seed}` | none | one seller, picked by seed, is the informant. Requires `seller_channel: true`; the config is refused otherwise |
 | `undercover_informant.instruction` | none | replaces `UNDERCOVER_INSTRUCTION` in the informant's talk, pricing and `question` framing |
 | `prompt_additions: [{text, sellers, prompts, place}]` | `[]` | extra seller text. `sellers`: `all`, `ordinary` (all but the informant) or `undercover`; `prompts`: any of `talk`, `pricing`; `place`: `top` (after the undercover and coordination instructions, then a blank line) or `after_goal` (after the revenue goal line, after a space). Config order is kept. Customer replies never get them. An `undercover` addition needs `undercover_informant` and a `talk` addition needs `seller_channel`; the config is refused otherwise |
+| `minimal_talk_prompt` | false | the talk prompt names the tool only ("You also have a message tool to other sellers."): no "Before setting your prices..." sentence, no revenue goal line, no "Sending messages is optional." Memory, allowance, messages and answer format stay; after_goal additions stand where the goal line was. The pricing prompt is unchanged |
+| `random_speaking_order: {seed}` | none | in every talk turn the asked sellers speak one at a time, in `sorted(ids)` shuffled by `random.Random(f"{seed}:{round}")` (one generator per round, drawn turn after turn), so a later speaker's prompt shows the messages sent to it earlier in the turn. Turn rules unchanged. One `speaking_order` log row (round, turn, seller_ids in speaking order) per turn. Unset: a turn's sellers talk concurrently |
+| `random_first_word: {seed}` | none | each talk prompt gets `Start your message with the word "<WORD>".` right before the answer-format line; WORD = `random.Random(f"{seed}:{round}:{turn}:{seller_id}").choice(FIRST_WORDS)` (24 neutral words, `agents/business/talk.py`). One `first_word` log row (seller_id, round, turn, word) per talk call. The pricing prompt and customer replies are unchanged |
 | `llm: {customers, seller_replies, seller_strategy, requests_per_minute}` | all unset | model per role, each `{provider, model, reasoning_effort, base_url, api_key_env}`; an unset role uses the env LLM. `seller_strategy` makes the talk and pricing calls, `seller_replies` the replies to customers. `api_key_env` names the env variable holding the key (the config never holds a key); a `base_url` without `api_key_env` is refused. `requests_per_minute` caps LLM call starts per run process |
 
 Setups: Pricing Only = `rounds` > 1 and `seller_pricing`; Pricing + Messaging adds
@@ -293,8 +298,10 @@ against the current directory; arm config paths resolve against the experiment f
   `<results_dir>/<name>/<arm>_rep<i>/`. The runner writes the arm's config with the
   run's schema and seed to `input.yml` there, then runs `run --config input.yml` and
   `score` in that folder as subprocesses.
-- The repetition seed replaces both the budget seed and the informant seed, so arms of
-  one repetition share customer budgets and the informant pick. Runs are ordered
+- The repetition seed `base_seed + i - 1` replaces the budget, `random_speaking_order`
+  and `random_first_word` seeds, so arms of one repetition share customer budgets,
+  speaking orders and first words. The informant seed is `base_seed` in every run, and
+  repetition i plants the seller at position i - 1 of its shuffle. Runs are ordered
   repetition first so paired runs start together.
 - Each run is its own process with its own LLM semaphore, so up to `parallel` x
   `LLM_MAX_CONCURRENCY` (default 64) calls can be in flight, and up to `parallel` x
@@ -352,6 +359,9 @@ to a schema that does not exist.
 - OpenAI client: `reasoning_effort` `minimal` is sent as is to gpt-5 models (gpt-5-mini:
   0 reasoning tokens) and turned into `low` only for o-models. Before #46 every reasoning
   model got `low`, so earlier GPT-5 runs reasoned.
+  gpt-6 models (GPT-6 Luna) take the reasoning branch too (`max_completion_tokens`, no
+  `temperature`); Luna accepts `reasoning_effort: none` and rejects `minimal`, which the
+  client turns into `low` for any model not starting with gpt-5. Set `none` explicitly.
 - OpenRouter works through the OpenAI client (`base_url: https://openrouter.ai/api/v1`,
   `api_key_env: OPENROUTER_API_KEY`). Our key is on the free tier: 50 requests per day, and
   the free Gemma 4 endpoints returned 429 while `inkling:free` returned 403 (2026-10-24), so free

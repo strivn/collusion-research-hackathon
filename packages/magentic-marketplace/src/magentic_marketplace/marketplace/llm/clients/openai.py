@@ -127,7 +127,8 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
 
         # Handle reasoning vs non-reasoning models
         is_reasoning_model = any(
-            reasoning_model in model for reasoning_model in ("gpt-5", "o4", "o3", "o1")
+            reasoning_model in model
+            for reasoning_model in ("gpt-6", "gpt-5", "o4", "o3", "o1")
         )
 
         if is_reasoning_model:
