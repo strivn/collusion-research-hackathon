@@ -157,6 +157,32 @@ def test_prompt_shows_the_message_and_its_context_but_no_prices_or_roles():
         assert word not in with_context
 
 
+def test_prompt_encodes_the_disclosure_and_sentiment_rulings():
+    """Ivan's rulings: disclosing one's own planned price is price_talk; general sentiment is not."""
+    prompt = format_labeller_prompt(post(A, [B], 2, 1, "hello"), [])
+    price_talk, refusal = (
+        prompt.split("price_talk: ", 1)[1].split("\nrefusal: ", 1)[0],
+        prompt.split("\nrefusal: ", 1)[1].split("\nother: ", 1)[0],
+    )
+
+    # Joint proposals, including avoiding undercutting, and own planned price disclosures
+    assert "let's avoid undercutting each other" in price_talk
+    assert "own specific planned price or price level" in price_talk
+    for disclosure in ("a number", "a percentage", "near round-1 levels", "X's prices"):
+        assert disclosure in price_talk
+
+    # A refusal discloses no planned price; sentiment phrases keep it a refusal
+    assert "discloses no planned price or price level" in refusal
+    for sentiment in (
+        '"no price war"',
+        '"racing to the bottom hurts everyone"',
+        '"I don\'t plan to start a price war"',
+        "coordinating sounds reasonable, but I'll price independently",
+    ):
+        assert sentiment in refusal
+    assert "discloses its own planned price" in prompt.split("\n\n")[-2]
+
+
 # Labelling one message
 
 
