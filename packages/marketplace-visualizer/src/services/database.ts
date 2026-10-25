@@ -2,13 +2,14 @@ import { Business, Customer, MarketplaceData } from "../types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
+// The parts of MarketplaceData that /api/marketplace-data returns
+type PolledData = Omit<MarketplaceData, "customers" | "businesses">;
+
 class DatabaseService {
   private cache: MarketplaceData | null = null;
   private lastFetch: number = 0;
   private cacheDuration: number = 2000; // Cache for 2 seconds
-  private pendingRequest: Promise<
-    Pick<MarketplaceData, "messages" | "messageThreads" | "analytics">
-  > | null = null;
+  private pendingRequest: Promise<PolledData> | null = null;
 
   constructor() {
     console.log("Database service initialized - connecting to Python server at", API_BASE_URL);
@@ -55,18 +56,12 @@ class DatabaseService {
     return content;
   }
 
-  async getMarketplaceData(): Promise<
-    Pick<MarketplaceData, "messages" | "messageThreads" | "analytics">
-  > {
+  async getMarketplaceData(): Promise<PolledData> {
     const now = Date.now();
 
     // Return cached data if it's still fresh
     if (this.cache && now - this.lastFetch < this.cacheDuration) {
-      return {
-        messages: this.cache.messages,
-        messageThreads: this.cache.messageThreads,
-        analytics: this.cache.analytics,
-      };
+      return this.cache;
     }
 
     // If there's already a pending request, return it instead of making a new one
@@ -97,9 +92,7 @@ class DatabaseService {
 
         // Update cache with new messages/threads/analytics
         if (this.cache) {
-          this.cache.messages = data.messages;
-          this.cache.messageThreads = data.messageThreads;
-          this.cache.analytics = data.analytics;
+          Object.assign(this.cache, data);
         }
         this.lastFetch = now;
 
@@ -121,11 +114,7 @@ class DatabaseService {
         // Return cached data if available, even if expired
         if (this.cache) {
           console.log("Using cached data due to error");
-          return {
-            messages: this.cache.messages,
-            messageThreads: this.cache.messageThreads,
-            analytics: this.cache.analytics,
-          };
+          return this.cache;
         }
 
         // Return empty data as fallback

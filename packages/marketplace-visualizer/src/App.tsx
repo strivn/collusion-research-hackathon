@@ -10,11 +10,14 @@ import { AnalyticsData, Business, Customer, MarketplaceData } from "./types";
 function App() {
   const [data, setData] = useState<MarketplaceData | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [analyticsByRound, setAnalyticsByRound] = useState<Record<string, AnalyticsData>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
+  // null shows every round
+  const [selectedRound, setSelectedRound] = useState<number | null>(null);
 
   // Load customers and businesses once on initial mount
   const loadInitialData = async () => {
@@ -52,9 +55,7 @@ function App() {
         prev
           ? {
               ...prev,
-              messages: marketplaceData.messages,
-              messageThreads: marketplaceData.messageThreads,
-              analytics: marketplaceData.analytics,
+              ...marketplaceData,
             }
           : null,
       );
@@ -62,6 +63,7 @@ function App() {
       if (marketplaceData.analytics) {
         setAnalytics(marketplaceData.analytics);
       }
+      setAnalyticsByRound(marketplaceData.analyticsByRound ?? {});
       setLastUpdate(new Date());
     } catch (error) {
       console.error("Error loading messages:", error);
@@ -76,6 +78,10 @@ function App() {
 
     let filtered = data.messageThreads;
 
+    if (selectedRound !== null) {
+      filtered = filtered.filter((thread) => thread.round === selectedRound);
+    }
+
     if (selectedCustomer) {
       filtered = filtered.filter(
         (thread) => thread.participants.customer.id === selectedCustomer.id,
@@ -89,7 +95,13 @@ function App() {
     }
 
     return filtered;
-  }, [data?.messageThreads, selectedCustomer, selectedBusiness]);
+  }, [data?.messageThreads, selectedRound, selectedCustomer, selectedBusiness]);
+
+  const rounds = data?.rounds ?? [];
+  const isMultiRound = rounds.length > 1;
+  // Numbers for the selected round, or summed over all rounds
+  const shownAnalytics =
+    selectedRound === null ? analytics : (analyticsByRound[String(selectedRound)] ?? null);
 
   const handleCustomerClick = (customer: Customer) => {
     setSelectedCustomer(selectedCustomer?.id === customer.id ? null : customer);
@@ -150,17 +162,36 @@ function App() {
             </div>
 
             <div className="flex flex-1 items-center justify-end gap-3">
+              {/* Round Filter */}
+              {isMultiRound && (
+                <select
+                  value={selectedRound ?? ""}
+                  onChange={(e) =>
+                    setSelectedRound(e.target.value === "" ? null : Number(e.target.value))
+                  }
+                  className="rounded-md border border-brand-200 bg-white px-2 py-1.5 text-xs font-semibold text-brand-700"
+                  aria-label="Round"
+                >
+                  <option value="">All {rounds.length} rounds</option>
+                  {rounds.map((round) => (
+                    <option key={round} value={round}>
+                      Round {round}
+                    </option>
+                  ))}
+                </select>
+              )}
+
               {/* Marketplace Summary */}
-              {analytics?.marketplace_summary && (
+              {shownAnalytics?.marketplace_summary && (
                 <div className="flex items-center gap-2 text-xs">
                   <div className="rounded-full bg-brand-100 px-3 py-1.5 font-semibold text-brand-700">
-                    Total Utility: ${analytics.marketplace_summary.total_utility.toFixed(2)}
+                    Total Utility: ${shownAnalytics.marketplace_summary.total_utility.toFixed(2)}
                   </div>
                   <div className="rounded-full bg-brand-100 px-3 py-1.5 font-semibold text-brand-700">
-                    Payments: {analytics.marketplace_summary.total_payments}
+                    Payments: {shownAnalytics.marketplace_summary.total_payments}
                   </div>
                   <div className="rounded-full bg-brand-100 px-3 py-1.5 font-semibold text-brand-700">
-                    Proposals: {analytics.marketplace_summary.total_proposals}
+                    Proposals: {shownAnalytics.marketplace_summary.total_proposals}
                   </div>
                 </div>
               )}
@@ -193,7 +224,7 @@ function App() {
               isLoading={isLoading}
               selectedCustomer={selectedCustomer}
               onCustomerClick={handleCustomerClick}
-              analytics={analytics?.customer_analytics}
+              analytics={shownAnalytics?.customer_analytics}
             />
           </div>
 
@@ -205,6 +236,11 @@ function App() {
               isLoading={isLoading}
               selectedCustomer={selectedCustomer}
               selectedBusiness={selectedBusiness}
+              rounds={rounds}
+              selectedRound={selectedRound}
+              sellerMessages={data?.sellerMessages ?? []}
+              sellerRounds={data?.sellerRounds ?? []}
+              roundAnalytics={analyticsByRound}
               onClearCustomer={() => setSelectedCustomer(null)}
               onClearBusiness={() => setSelectedBusiness(null)}
             />
@@ -217,7 +253,7 @@ function App() {
               isLoading={isLoading}
               selectedBusiness={selectedBusiness}
               onBusinessClick={handleBusinessClick}
-              analytics={analytics?.business_analytics}
+              analytics={shownAnalytics?.business_analytics}
             />
           </div>
         </div>

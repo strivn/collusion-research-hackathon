@@ -11,6 +11,7 @@ interface ConversationProps {
   businesses?: Array<{ id: string; name: string }>;
   onClick?: () => void;
   isExpanded?: boolean;
+  showRound?: boolean;
 }
 
 const Conversation: React.FC<ConversationProps> = ({
@@ -18,6 +19,7 @@ const Conversation: React.FC<ConversationProps> = ({
   businesses,
   onClick,
   isExpanded = false,
+  showRound = false,
 }) => {
   // Calculate conversation analytics
   const conversationStats = useMemo(() => {
@@ -93,6 +95,7 @@ const Conversation: React.FC<ConversationProps> = ({
             </div>
             <div className="text-right">
               <p className="text-sm font-medium text-brand-600">
+                {showRound && `Round ${thread.round} · `}
                 {thread.messages.length} messages
               </p>
               <p className="text-xs text-gray-500">
@@ -212,6 +215,14 @@ const Conversation: React.FC<ConversationProps> = ({
 
         {/* Stats - New line below names */}
         <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-gray-600">
+          {showRound && (
+            <>
+              <span className="rounded-full bg-brand-100 px-2 py-0.5 text-brand-700">
+                Round {thread.round}
+              </span>
+              <span>|</span>
+            </>
+          )}
           <span>{thread.messages.length} messages</span>
           <span>|</span>
           <span>Customer Utility: ${conversationStats.utility.toFixed(2)}</span>
