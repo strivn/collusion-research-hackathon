@@ -1,15 +1,27 @@
 """FastAPI server for marketplace analytics and visualization."""
 
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from ..experiments.budgets import reference_price
+from ..experiments.judge import load_channel_posts
+from ..experiments.round_scores import (
+    CustomerRoundRow,
+    SellerRoundRow,
+    compute_round_tables,
+    meets_request,
+    score_customer_round,
+)
 from ..experiments.run_analytics import MarketplaceAnalytics
 from ..marketplace.actions import ActionAdapter, Search, SendMessage
+from ..marketplace.actions.messaging import OrderProposal
 from ..marketplace.shared.models import (
     BusinessAgentProfile,
     CustomerAgentProfile,
@@ -23,6 +35,9 @@ from ..platform.database.base import BaseDatabaseController
 
 # Global database controller (set during lifespan)
 _db_controller: BaseDatabaseController | None = None
+
+# Last /api/marketplace-data response, keyed by the action and log row counts it was built from
+_marketplace_data_cache: tuple[tuple[int, int], dict[str, Any]] | None = None
 
 
 async def _load_customers():
@@ -101,6 +116,9 @@ async def _load_messages():
         if action_result.is_error:
             continue
 
+        # Actions of stock single-round runs carry no round
+        round_number = action_request.metadata.get("round", 1)
+
         try:
             action = ActionAdapter.validate_python(action_request.parameters)
 
@@ -120,6 +138,7 @@ async def _load_messages():
                     "type": message_content.type,
                     "content": content_value,
                     "created_at": action.created_at.isoformat(),
+                    "round": round_number,
                 }
                 messages.append(message)
             elif isinstance(action, Search):
@@ -146,6 +165,7 @@ async def _load_messages():
                     "type": "search",
                     "content": search_content,
                     "created_at": action_row.created_at.isoformat(),
+                    "round": round_number,
                     "business_ids": business_ids,  # Store for thread matching
                 }
                 messages.append(message)
@@ -158,6 +178,9 @@ async def _load_messages():
 
 def _create_message_threads(customers, businesses, messages):
     """Create message threads from customers, businesses, and messages.
+
+    A thread is one customer and one business in one round: agents are fresh each round
+    and never see earlier rounds' messages.
 
     Returns:
         tuple: (threads_dict, threads_with_payments_set) where:
@@ -181,7 +204,9 @@ def _create_message_threads(customers, businesses, messages):
                 for business_id in message["business_ids"]:
                     business = business_by_agent_id.get(business_id)
                     if business:
-                        thread_key = f"{customer['id']}-{business_id}"
+                        thread_key = (
+                            f"{customer['id']}-{business_id}-r{message['round']}"
+                        )
 
                         if thread_key not in threads:
                             threads[thread_key] = {
@@ -189,6 +214,7 @@ def _create_message_threads(customers, businesses, messages):
                                     "customer": customer,
                                     "business": business,
                                 },
+                                "round": message["round"],
                                 "messages": [],
                                 "lastMessageTime": message["created_at"],
                                 "utility": 0,  # Default utility
@@ -213,11 +239,12 @@ def _create_message_threads(customers, businesses, messages):
             if customer and business:
                 customer_id = customer["id"]
                 business_id = business["id"]
-                thread_key = f"{customer_id}-{business_id}"
+                thread_key = f"{customer_id}-{business_id}-r{message['round']}"
 
                 if thread_key not in threads:
                     threads[thread_key] = {
                         "participants": {"customer": customer, "business": business},
+                        "round": message["round"],
                         "messages": [],
                         "lastMessageTime": message["created_at"],
                         "utility": 0,  # Default utility
@@ -231,6 +258,143 @@ def _create_message_threads(customers, businesses, messages):
                     threads_with_payments.add(thread_key)
 
     return threads, threads_with_payments
+
+
+def _thread_customer_share(analytics: MarketplaceAnalytics, thread) -> float:
+    """Return the customer share of one thread, scored like one customer-round.
+
+    The customer's value counts once if a payment in the thread meets the request; every
+    payment in the thread is subtracted (`round_scores.score_customer_round`).
+    """
+    customer_id = thread["participants"]["customer"]["id"]
+    business_id = thread["participants"]["business"]["id"]
+    # A repeated proposal id overwrites the earlier one, as in round_scores
+    proposals = {
+        m["content"]["id"]: OrderProposal.model_validate(m["content"])
+        for m in thread["messages"]
+        if m["type"] == "order_proposal" and m["from_agent"] == business_id
+    }
+    purchases = [
+        proposals[m["content"]["proposal_message_id"]]
+        for m in thread["messages"]
+        if m["type"] == "payment"
+        and m["from_agent"] == customer_id
+        and m["content"]["proposal_message_id"] in proposals
+    ]
+    customer = analytics.customer_agents[customer_id].customer
+    value = round(2 * reference_price(customer), 2)
+    return score_customer_round(
+        value,
+        [
+            (p.total_price, meets_request(analytics, customer_id, business_id, p))
+            for p in purchases
+        ],
+    ).customer_share
+
+
+def _summarize_round(
+    round_number: int | None,
+    customers,
+    businesses,
+    threads,
+    customer_rows: list[CustomerRoundRow],
+    seller_rows: list[SellerRoundRow],
+) -> dict[str, Any]:
+    """Return customer, business and marketplace numbers for one round, or all rounds if None.
+
+    Utility is the customer share for customers and revenue for businesses, from the round
+    tables; proposal and payment counts come from the threads.
+    """
+    # Keep only the rows and threads of the round asked for
+    if round_number is not None:
+        customer_rows = [r for r in customer_rows if r.round == round_number]
+        seller_rows = [r for r in seller_rows if r.round == round_number]
+        threads = [t for t in threads if t["round"] == round_number]
+
+    # Proposals sent by the business and payments sent by the customer, per thread
+    proposals: dict[str, int] = defaultdict(int)
+    payments: dict[str, int] = defaultdict(int)
+    for thread in threads:
+        customer_id = thread["participants"]["customer"]["id"]
+        business_id = thread["participants"]["business"]["id"]
+        for m in thread["messages"]:
+            if m["type"] == "order_proposal" and m["from_agent"] == business_id:
+                proposals[customer_id] += 1
+                proposals[business_id] += 1
+            elif m["type"] == "payment" and m["from_agent"] == customer_id:
+                payments[customer_id] += 1
+                payments[business_id] += 1
+
+    customer_share: dict[str, float] = defaultdict(float)
+    for row in customer_rows:
+        customer_share[row.customer] += row.customer_share
+    revenue: dict[str, float] = defaultdict(float)
+    for row in seller_rows:
+        revenue[row.seller] += row.revenue
+
+    return {
+        "customer_analytics": {
+            c["id"]: {
+                "utility": round(customer_share[c["id"]], 2),
+                "payments_made": payments[c["id"]],
+                "proposals_received": proposals[c["id"]],
+            }
+            for c in customers
+        },
+        "business_analytics": {
+            b["id"]: {
+                "utility": round(revenue[b["id"]], 2),
+                "proposals_sent": proposals[b["id"]],
+                "payments_received": payments[b["id"]],
+            }
+            for b in businesses
+        },
+        "marketplace_summary": {
+            "total_utility": round(sum(r.customer_share for r in customer_rows), 2),
+            "total_payments": sum(payments[c["id"]] for c in customers),
+            "total_proposals": sum(proposals[c["id"]] for c in customers),
+            "seller_share": round(sum(r.seller_share for r in customer_rows), 2),
+            "lost": round(sum(r.lost for r in customer_rows), 2),
+            "sales": sum(r.outcome == "sale" for r in customer_rows),
+        },
+    }
+
+
+async def _build_marketplace_data(database: BaseDatabaseController) -> dict[str, Any]:
+    """Return messages, per-round threads, seller messages, prices and per-round analytics."""
+    customers = await _load_customers()
+    businesses = await _load_businesses()
+    messages = await _load_messages()
+    threads_dict, threads_with_payments = _create_message_threads(
+        customers, businesses, messages
+    )
+    customer_rows, seller_rows = await compute_round_tables(database)
+    posts = await load_channel_posts(database)
+
+    # Profiles only, for the request-matching rule of round_scores
+    analytics = MarketplaceAnalytics(database)
+    await analytics.load_data()
+    for thread_key in threads_with_payments:
+        thread = threads_dict[thread_key]
+        thread["utility"] = _thread_customer_share(analytics, thread)
+
+    # Convert to list and sort by lastMessageTime
+    message_threads = list(threads_dict.values())
+    message_threads.sort(key=lambda x: x["lastMessageTime"], reverse=True)
+
+    rounds = sorted({row.round for row in customer_rows})
+    summary_args = (customers, businesses, message_threads, customer_rows, seller_rows)
+    return {
+        "messages": messages,
+        "messageThreads": message_threads,
+        "analytics": _summarize_round(None, *summary_args),
+        "analyticsByRound": {
+            str(r): _summarize_round(r, *summary_args) for r in rounds
+        },
+        "rounds": rounds,
+        "sellerMessages": [post.model_dump() for post in posts],
+        "sellerRounds": [row.model_dump() for row in seller_rows],
+    }
 
 
 def create_analytics_app(
@@ -345,82 +509,23 @@ def create_analytics_app(
 
     @app.get("/api/marketplace-data")
     async def get_marketplace_data():
-        """Get messages, message threads, and analytics."""
+        """Get messages, threads, seller messages, prices and analytics, cached until rows change."""
+        global _marketplace_data_cache
         try:
-            customers = await _load_customers()
-            businesses = await _load_businesses()
-            messages = await _load_messages()
-            threads_dict, threads_with_payments = _create_message_threads(
-                customers, businesses, messages
-            )
-
-            # Calculate analytics
             if _db_controller is None:
                 raise RuntimeError("Database controller not initialized")
-            analytics = MarketplaceAnalytics(_db_controller)
-            await analytics.load_data()
-            await analytics.analyze_actions()
-            analytics_results = analytics.collect_analytics_results()
 
-            for thread_key in threads_with_payments:
-                thread = threads_dict[thread_key]
-                customer_id = thread["participants"]["customer"]["id"]
-                business_id = thread["participants"]["business"]["id"]
-
-                # Calculate utility for this specific conversation
-                conversation_utility = analytics.calculate_conversation_utility(
-                    customer_id, business_id
+            # Rows are only ever added, so unchanged counts mean unchanged data
+            key = (
+                await _db_controller.actions.count(),
+                await _db_controller.logs.count(),
+            )
+            if _marketplace_data_cache is None or _marketplace_data_cache[0] != key:
+                _marketplace_data_cache = (
+                    key,
+                    await _build_marketplace_data(_db_controller),
                 )
-                thread["utility"] = conversation_utility
-
-            # Convert to list and sort by lastMessageTime
-            message_threads = list(threads_dict.values())
-            message_threads.sort(key=lambda x: x["lastMessageTime"], reverse=True)
-
-            # Build customer analytics dict
-            customer_analytics = {}
-            for customer_summary in analytics_results.customer_summaries:
-                customer_analytics[customer_summary.customer_id] = {
-                    "utility": customer_summary.utility,
-                    "payments_made": customer_summary.payments_made,
-                    "proposals_received": customer_summary.proposals_received,
-                }
-
-            # Build business analytics dict
-            business_analytics = {}
-            for business_summary in analytics_results.business_summaries:
-                # Count payments received for this business
-                payments_received = 0
-                for customer_payments in analytics.customer_payments.values():
-                    for payment in customer_payments:
-                        business_id = analytics._find_business_for_proposal(
-                            payment.proposal_message_id
-                        )
-                        if business_id == business_summary.business_id:
-                            payments_received += 1
-
-                business_analytics[business_summary.business_id] = {
-                    "utility": business_summary.utility,
-                    "proposals_sent": business_summary.proposals_sent,
-                    "payments_received": payments_received,
-                }
-
-            # Marketplace summary
-            marketplace_summary = {
-                "total_utility": analytics_results.total_marketplace_customer_utility,
-                "total_payments": analytics_results.transaction_summary.payments_made,
-                "total_proposals": analytics_results.transaction_summary.order_proposals_created,
-            }
-
-            return {
-                "messages": messages,
-                "messageThreads": message_threads,
-                "analytics": {
-                    "customer_analytics": customer_analytics,
-                    "business_analytics": business_analytics,
-                    "marketplace_summary": marketplace_summary,
-                },
-            }
+            return _marketplace_data_cache[1]
         except Exception as e:
             print(f"Error: {e}")
             return {"error": "Unable to load messages"}
