@@ -367,6 +367,10 @@ to a schema that does not exist.
   `api_key_env: OPENROUTER_API_KEY`). Our key is on the free tier: 50 requests per day, and
   the free Gemma 4 endpoints returned 429 while `inkling:free` returned 403 (2026-10-24), so free
   models cannot carry a run.
+- The market LLM clients (OpenAI, Anthropic) and `price-talk` give up on a call after 90 s
+  and retry it (`API_TIMEOUT_SECONDS`, `API_MAX_RETRIES` in `llm/base.py`). Without a timeout
+  the SDKs wait up to 10 minutes; on 2026-10-25 about 10% of calls hung that long and stalled
+  whole runs, since every round waits for its slowest seller.
 - Each `llm_call` log row has `input_tokens` and `output_tokens` next to the stock
   combined `token_count`, for all three clients, so spend can be computed per call.
   `judge` and `question` write no `llm_call` rows (they pass no logger), so their spend
