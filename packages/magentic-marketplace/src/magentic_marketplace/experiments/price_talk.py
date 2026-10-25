@@ -33,6 +33,7 @@ from magentic_marketplace.experiments.judge import (
 )
 from magentic_marketplace.experiments.questioning import load_seller_ids
 from magentic_marketplace.marketplace.agents.business.models import ChannelMessageLog
+from magentic_marketplace.marketplace.llm.base import API_TIMEOUT_SECONDS
 from magentic_marketplace.platform.database import connect_to_postgresql_database
 from magentic_marketplace.platform.database.sqlite.sqlite import (
     SQLiteDatabaseController,
@@ -331,7 +332,7 @@ async def run_price_talk(
     Messages come from `from_json` when given, its sellers being everyone who sent or
     received a message; otherwise from the database `experiment_name` (Postgres schema, or
     SQLite file path), with every seller of the run. Uses
-    `anthropic.AsyncAnthropic(max_retries=5)`, which reads its key and base URL from the
+    `anthropic.AsyncAnthropic(max_retries=5, timeout=API_TIMEOUT_SECONDS)`, which reads its key and base URL from the
     environment. Returns the message labels and colluding sellers paths.
     """
     if from_json is not None:
@@ -358,7 +359,7 @@ async def run_price_talk(
             seller_ids = await load_seller_ids(database)
 
     # The client reads its key and base URL from the environment
-    client = anthropic.AsyncAnthropic(max_retries=5)
+    client = anthropic.AsyncAnthropic(max_retries=5, timeout=API_TIMEOUT_SECONDS)
     labels = await label_messages(
         posts,
         make_anthropic_price_talk_labeller(client, model),

@@ -18,6 +18,8 @@ from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.shared_params import FunctionDefinition
 
 from ..base import (
+    API_MAX_RETRIES,
+    API_TIMEOUT_SECONDS,
     AllowedChatCompletionMessageParams,
     ProviderClient,
     TResponseModel,
@@ -61,7 +63,10 @@ class OpenAIClient(ProviderClient[OpenAIConfig]):
                 "or pass api_key in config."
             )
         self.client = AsyncOpenAI(
-            api_key=self.config.api_key, base_url=self.config.base_url
+            api_key=self.config.api_key,
+            base_url=self.config.base_url,
+            timeout=API_TIMEOUT_SECONDS,
+            max_retries=API_MAX_RETRIES,
         )
 
     @staticmethod

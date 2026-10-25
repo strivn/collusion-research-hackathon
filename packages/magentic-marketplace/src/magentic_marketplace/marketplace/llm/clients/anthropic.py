@@ -9,6 +9,8 @@ import anthropic
 import anthropic.types
 
 from ..base import (
+    API_MAX_RETRIES,
+    API_TIMEOUT_SECONDS,
     AllowedChatCompletionMessageParams,
     ProviderClient,
     TResponseModel,
@@ -50,7 +52,11 @@ class AnthropicClient(ProviderClient[AnthropicConfig]):
                 "Anthropic API key not found. Set ANTHROPIC_API_KEY environment variable "
                 "or pass api_key in config."
             )
-        self.client = anthropic.AsyncAnthropic(api_key=self.config.api_key)
+        self.client = anthropic.AsyncAnthropic(
+            api_key=self.config.api_key,
+            timeout=API_TIMEOUT_SECONDS,
+            max_retries=API_MAX_RETRIES,
+        )
 
     @staticmethod
     def _get_cache_key(config: AnthropicConfig) -> str:

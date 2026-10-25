@@ -19,6 +19,10 @@ from magentic_marketplace.platform.logger import MarketplaceLogger
 
 from .config import BaseLLMConfig
 
+# Some API calls hang for minutes without an answer; give up after this long and retry
+API_TIMEOUT_SECONDS = 90.0
+API_MAX_RETRIES = 3
+
 TConfig = TypeVar("TConfig", bound=BaseLLMConfig)
 TResponseModel = TypeVar("TResponseModel", bound=BaseModel)
 
