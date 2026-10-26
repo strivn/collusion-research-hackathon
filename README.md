@@ -4,6 +4,8 @@ Research extensions to [Microsoft’s Magentic Marketplace](https://github.com/m
 studying whether LLM sellers coordinate prices, whether undercover sellers expose
 that coordination, and how sellers respond to monitoring.
 
+Built during a weekend sprint for the Apart Research collusion hackathon.
+
 ## Research setup
 
 Four restaurant sellers compete for eight customers over repeated rounds. Sellers
