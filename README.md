@@ -1,68 +1,71 @@
-# Magentic Marketplace
+# LLM Seller Collusion: Undercover Agents and Monitoring
 
-[Documentation](https://microsoft.github.io/multi-agent-marketplace/) | [Paper](https://arxiv.org/abs/2510.25779)
+Research extensions to [Microsoft’s Magentic Marketplace](https://github.com/microsoft/multi-agent-marketplace),
+studying whether LLM sellers coordinate prices, whether undercover sellers expose
+that coordination, and how sellers respond to monitoring.
 
+## Research setup
 
-**Magentic Marketplace** is a Python framework for simulating AI-powered markets. Configure LLM-based buyer and seller agents, run realistic marketplace simulations, and measure economic outcomes like welfare, fairness, and efficiency.
+Four restaurant sellers compete for eight customers over repeated rounds. Sellers
+can update prices, remember previous sales, and message one another. Optional
+instructions introduce undercover sellers or tell sellers their messages are monitored.
 
-<div align="center">
+The project adds customer budgets, seller pricing and memory, seller messaging,
+configurable models by role, an experiment runner, and tools for scoring purchases,
+labelling price talk, and checking accusations against quoted messages.
+Price talk and realized price changes are measured separately.
 
-   <video src="https://github.com/user-attachments/assets/5b897387-d96c-4e7a-9bd2-b6c53eaeabb9" style="max-height: 450px;">
-   </video>
-</div>
+## Setup
 
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Docker, and model API credentials.
+Simulation and evaluator calls can incur API charges.
 
-## What can you do with this?
+```bash
+# Clone this repository and install its dependencies.
+git clone https://github.com/strivn/collusion-research-hackathon.git
+cd collusion-research-hackathon
+uv sync --frozen
 
-- **Evaluate LLM models** - Compare how different models (OpenAI, Claude, Gemini, local models) perform as marketplace agents
-- **Test market designs** - Experiment with different search algorithms, communication protocols, and marketplace rules
-- **Study agent behavior** - Measure welfare outcomes, identify biases, and test resistance to manipulation
-- **Extend to new domains** - Adapt the framework beyond restaurants/contractors to other two-sided markets
+# Configure credentials locally, then start Postgres.
+cp sample.env .env
+# Edit .env to select your provider and model and supply API keys.
+docker compose up -d
+```
 
-## Quick Start
+```bash
+# Run a stock baseline in its own output folder.
+mkdir -p research/results/example
+cd research/results/example
+uv run --project ../../.. magentic-marketplace run \
+  ../../../data/mexican_3_9 --experiment-name portfolio_example \
+  --env-file ../../../.env
+```
 
-1. Configure your environment
+Use a new experiment name for each run; names identify database schemas.
+Run commands from their output folder because metrics and traces are written there.
+Research settings are available through `run --config`; multi-arm experiments use
+`experiment`. See [configuration fields](packages/magentic-marketplace/src/magentic_marketplace/experiments/run_config.py),
+[experiment runner](packages/magentic-marketplace/src/magentic_marketplace/experiments/experiment_runner.py),
+and `magentic-marketplace --help`.
 
-   ```bash
-   # Clone the repo
-   git clone https://github.com/microsoft/multi-agent-marketplace.git
-   cd multi-agent-marketplace
+## Development
 
-   # Install dependencies with `uv`. Install from https://docs.astral.sh/uv/
-   uv sync --all-extras
-   source .venv/bin/activate
+```bash
+# Run quality checks and the CI test selection.
+uv run poe check-all
+uv run pytest -m "not skip_ci and not rnr and not postgres"
+```
 
-   # Configure environment variables in .env. Edit in favorite editor
-   cp sample.env .env
+Full type checking requires the optional search dependencies (`uv sync --all-extras`).
+Development uses `develop`. Frozen `main` preserves the unmodified upstream baseline
+at commit `9a651c7`. New simulation features default to stock behavior.
 
-   # Start the database server
-   docker compose up -d
-   ```
+## Upstream credit
 
-2. Run simulations and analyze the outputs
-
-   ```bash
-   # Run an experiment (experiment name is optional)
-   magentic-marketplace run data/mexican_3_9 --experiment-name test_exp
-
-   # Analyze the results
-   magentic-marketplace analyze test_exp
-   ```
-
-   You can also run experiments from python scripts, see [experiments/example.py](experiments/example.py).
-
-   View more CLI options with `magentic-marketplace --help`.
-
-## FAQ
-
-- [How can I test my LLM?](https://microsoft.github.io/multi-agent-marketplace/usage/env.html)
-- [How can I access the log and evaluate?](https://microsoft.github.io/multi-agent-marketplace/usage/cli-analyze.html)
-
-[**Check out the docs for more info.**](https://microsoft.github.io/multi-agent-marketplace/)
-
-## Citation
-
-If you use this work, please cite:
+The base framework, original datasets, visualizer, and upstream documentation come
+from Microsoft’s Magentic Marketplace. This repository retains its [MIT license](LICENSE).
+The [upstream documentation](https://microsoft.github.io/multi-agent-marketplace/)
+describes the base framework. Cite its [paper](https://arxiv.org/abs/2510.25779) when using it:
 
 ```
 @misc{bansal-arxiv-2025,
