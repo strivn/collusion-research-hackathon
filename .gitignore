@@ -227,3 +227,10 @@ __marimo__/
 *.json
 
 !.vscode/settings.json
+
+# Keep local research outputs and agent context private.
+/research/
+/.claude/
+/.Codex/
+/.remember/
+/CLAUDE.local.md
