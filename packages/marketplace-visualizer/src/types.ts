@@ -58,6 +58,7 @@ export interface Message {
   type: string;
   content: MessageContent;
   created_at: string;
+  round: number;
 }
 
 export interface MessageThread {
@@ -65,6 +66,7 @@ export interface MessageThread {
     customer: Customer;
     business: Business;
   };
+  round: number;
   messages: Message[];
   lastMessageTime: string;
   utility: number;
@@ -86,6 +88,9 @@ export interface MarketplaceSummary {
   total_utility: number;
   total_payments: number;
   total_proposals: number;
+  seller_share: number;
+  lost: number;
+  sales: number;
 }
 
 export interface AnalyticsData {
@@ -94,10 +99,33 @@ export interface AnalyticsData {
   marketplace_summary: MarketplaceSummary;
 }
 
+// One seller-to-seller message as sent, with every recipient
+export interface SellerMessage {
+  sender: string;
+  recipients: string[];
+  round: number;
+  turn: number;
+  text: string;
+}
+
+// One seller's price and sales of one menu item in one round
+export interface SellerRound {
+  round: number;
+  seller: string;
+  item: string;
+  price: number;
+  units_sold: number;
+  revenue: number;
+}
+
 export interface MarketplaceData {
   customers: Customer[];
   businesses: Business[];
   messages: Message[];
   messageThreads: MessageThread[];
   analytics?: AnalyticsData;
+  analyticsByRound?: Record<string, AnalyticsData>;
+  rounds?: number[];
+  sellerMessages?: SellerMessage[];
+  sellerRounds?: SellerRound[];
 }

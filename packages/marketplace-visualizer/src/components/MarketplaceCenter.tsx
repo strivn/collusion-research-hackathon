@@ -1,8 +1,19 @@
 import { ArrowDownAZ, ArrowUpAZ, Eye, MessageSquare, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 
-import { Business, Customer, MessageThread } from "../types";
+import {
+  AnalyticsData,
+  Business,
+  Customer,
+  MessageThread,
+  SellerMessage,
+  SellerRound,
+} from "../types";
 import Conversation from "./Conversation";
+import PriceTable from "./PriceTable";
+import SellerMessages from "./SellerMessages";
+
+type View = "conversations" | "seller-messages" | "prices";
 
 interface MarketplaceCenterProps {
   messageThreads: MessageThread[];
@@ -10,6 +21,11 @@ interface MarketplaceCenterProps {
   isLoading: boolean;
   selectedCustomer: Customer | null;
   selectedBusiness: Business | null;
+  rounds: number[];
+  selectedRound: number | null;
+  sellerMessages: SellerMessage[];
+  sellerRounds: SellerRound[];
+  roundAnalytics: Record<string, AnalyticsData>;
   onClearCustomer: () => void;
   onClearBusiness: () => void;
 }
@@ -20,16 +36,32 @@ const MarketplaceCenter: React.FC<MarketplaceCenterProps> = ({
   isLoading,
   selectedCustomer,
   selectedBusiness,
+  rounds,
+  selectedRound,
+  sellerMessages,
+  sellerRounds,
+  roundAnalytics,
   onClearCustomer,
   onClearBusiness,
 }) => {
   const [selectedThread, setSelectedThread] = useState<MessageThread | null>(null);
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [view, setView] = useState<View>("conversations");
+
+  // Single-round runs without seller messages keep the stock conversation list only
+  const isMultiRound = rounds.length > 1;
+  const views: Array<[View, string]> = [
+    ["conversations", "Customer conversations"],
+    ...(sellerMessages.length > 0
+      ? [["seller-messages", "Seller messages"] as [View, string]]
+      : []),
+    ...(isMultiRound ? [["prices", "Prices"] as [View, string]] : []),
+  ];
 
   // Reset selected thread when filters change
   useEffect(() => {
     setSelectedThread(null);
-  }, [selectedCustomer, selectedBusiness]);
+  }, [selectedCustomer, selectedBusiness, selectedRound]);
 
   // Sort message threads by lastMessageTime
   const sortedMessageThreads = useMemo(() => {
@@ -83,6 +115,24 @@ const MarketplaceCenter: React.FC<MarketplaceCenterProps> = ({
                 {messageThreads.length} conversations
               </span>
             </div>
+            {/* View Tabs */}
+            {views.length > 1 && (
+              <div className="flex items-center gap-1">
+                {views.map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setView(key)}
+                    className={
+                      view === key
+                        ? "rounded-md bg-brand-600 px-3 py-1 text-xs font-semibold text-white"
+                        : "rounded-md bg-gray-100 px-3 py-1 text-xs text-gray-700 hover:bg-gray-200"
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* Active Filters */}
             {(selectedCustomer || selectedBusiness) && (
               <div className="flex items-center gap-2">
@@ -119,7 +169,7 @@ const MarketplaceCenter: React.FC<MarketplaceCenterProps> = ({
           </div>
           <div className="flex items-center gap-2">
             {/* Sort Button */}
-            {!selectedThread && (
+            {!selectedThread && view === "conversations" && (
               <button
                 onClick={toggleSortOrder}
                 className="flex items-center space-x-1 rounded-md bg-gray-100 px-2 py-1 text-xs text-gray-700 transition-colors hover:bg-gray-200"
@@ -138,7 +188,7 @@ const MarketplaceCenter: React.FC<MarketplaceCenterProps> = ({
                 )}
               </button>
             )}
-            {selectedThread && (
+            {selectedThread && view === "conversations" && (
               <button
                 onClick={() => setSelectedThread(null)}
                 className="flex items-center space-x-1 text-sm text-gray-500 hover:text-gray-700"
@@ -154,19 +204,43 @@ const MarketplaceCenter: React.FC<MarketplaceCenterProps> = ({
       {/* Content */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="p-4">
-          {selectedThread ? (
+          {view === "seller-messages" ? (
+            <SellerMessages
+              sellerMessages={sellerMessages}
+              sellerRounds={sellerRounds}
+              rounds={rounds}
+              businesses={businesses}
+              selectedRound={selectedRound}
+              selectedBusiness={selectedBusiness}
+            />
+          ) : view === "prices" ? (
+            <PriceTable
+              sellerRounds={sellerRounds}
+              rounds={rounds}
+              businesses={businesses}
+              roundAnalytics={roundAnalytics}
+              selectedRound={selectedRound}
+              selectedBusiness={selectedBusiness}
+            />
+          ) : selectedThread ? (
             // Detailed Thread View
-            <Conversation thread={selectedThread} businesses={businesses} isExpanded={true} />
+            <Conversation
+              thread={selectedThread}
+              businesses={businesses}
+              isExpanded={true}
+              showRound={isMultiRound}
+            />
           ) : (
             // Thread List View
             <div className="space-y-3">
               {sortedMessageThreads.map((thread) => (
                 <Conversation
-                  key={`${thread.participants.customer.id}-${thread.participants.business.id}`}
+                  key={`${thread.participants.customer.id}-${thread.participants.business.id}-r${thread.round}`}
                   thread={thread}
                   businesses={businesses}
                   onClick={() => setSelectedThread(thread)}
                   isExpanded={false}
+                  showRound={isMultiRound}
                 />
               ))}
 

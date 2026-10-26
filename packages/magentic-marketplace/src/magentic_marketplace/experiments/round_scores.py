@@ -165,7 +165,7 @@ async def compute_round_tables(
             value = round(2 * reference_price(profile.customer), 2)
             purchases = paid[(round_number, customer_id)]
             meets = [
-                _meets_request(analytics, customer_id, seller_id, proposal)
+                meets_request(analytics, customer_id, seller_id, proposal)
                 for seller_id, proposal in purchases
             ]
             score = score_customer_round(
@@ -222,7 +222,7 @@ async def compute_round_tables(
     return customer_rows, seller_rows
 
 
-def _meets_request(
+def meets_request(
     analytics: MarketplaceAnalytics,
     customer_id: str,
     seller_id: str,
